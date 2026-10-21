@@ -1,0 +1,8 @@
+# Segmentation server. Install torch (CUDA build) and the Mazurowski repo requirements first:
+#   pip install -r ../../CT-Muscle-and-Fat-Segmentation/requirements.txt   (nnunetv2, TotalSegmentator, ...)
+fastapi
+uvicorn
+nibabel
+numpy
+psutil
+SimpleITK

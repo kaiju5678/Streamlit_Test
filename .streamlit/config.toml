@@ -1,0 +1,17 @@
+[server]
+maxUploadSize = 2048          # MB; CT studies and DICOM folders are often larger than the 200 MB default
+headless = true
+enableStaticServing = true   # static/plotly.min.js for the 3D model (copied from the plotly package)
+# This machine only. For hospital-intranet clients (e.g. on the Jetson) change to "0.0.0.0".
+address = "localhost"
+
+[browser]
+gatherUsageStats = false      # no telemetry
+
+[theme]
+base = "dark"
+primaryColor = "#f0b44c"
+backgroundColor = "#0a0e13"
+secondaryBackgroundColor = "#11171f"
+textColor = "#d9e1ea"
+font = "sans serif"

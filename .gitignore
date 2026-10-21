@@ -1,3 +1,11 @@
-venv
-.vscode
-/__pycache__/**
+__pycache__/
+venv/
+.venv/
+*.nii
+*.nii.gz
+*.dcm
+*.zip
+.env
+data/reports/
+data/signing-key.pem
+static/

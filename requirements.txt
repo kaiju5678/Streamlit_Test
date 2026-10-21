@@ -1,3 +1,10 @@
-streamlit>=1.38
-nibabel
+# Frontend (Streamlit). The segmentation server has its own: inference/requirements.txt
+streamlit>=1.50
 numpy
+pandas
+nibabel
+plotly
+pillow
+scikit-image
+requests
+cryptography

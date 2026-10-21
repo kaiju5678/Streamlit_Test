@@ -1,89 +1,81 @@
-import time
-from pathlib import Path
+"""BodyComp: CT body composition workstation in Python/Streamlit (the ct-scan-test workflow).
+
+    run_server.bat     terminal 1: segmentation server (Mazurowski nnU-Net + TotalSegmentator vertebrae)
+    run_frontend.bat   terminal 2: streamlit run app.py  ->  http://localhost:8501
+
+Studies, masks and reports live in this browser session; only signed reports are written (DATA_DIR/reports).
+Only the de-identified metrics payload (Transmitted JSON tab) is sent to the language model.
+"""
+from __future__ import annotations
+
 import streamlit as st
-import core
 
-WORK = Path("workdir"); WORK.mkdir(exist_ok=True)   # CT + masks stay on local disk only
-st.set_page_config(page_title="CT Body Composition", layout="wide")
+import config
+from ui import sidebar, tabs
+from ui import state as S
+
+st.set_page_config(page_title="BodyComp · CT body composition", page_icon="🩻", layout="wide")
+st.markdown(f"<style>{(config.BASE_DIR / 'assets' / 'style.css').read_text(encoding='utf-8')}</style>", unsafe_allow_html=True)
+
+S.init()
 ss = st.session_state
-for k, v in dict(log=[], study=None, study_name=None, mask=None).items():
-    ss.setdefault(k, v)
+
+# Long actions queued by buttons (DICOM conversion, report generation) run here, before anything is drawn.
+if ss.action:
+    action, ss.action = ss.action, None
+    S.run_action(action)
 
 
-def log(msg):
-    ss.log.append(f"{time.strftime('%H:%M:%S')}  {msg}")
-
-
-@st.cache_data(show_spinner="Loading volume...")
-def get_volume(p): return core.load_volume(p)
-
-
-@st.cache_data(show_spinner=False)
-def get_mask(p): return core.load_mask(p)
-
-
-# ---------------- Sidebar: workflow ----------------
-with st.sidebar:
-    st.header("1 · Data input")
-    up = st.file_uploader("CT study (NIfTI)", type=["nii", "gz"])
-    if up and ss.study_name != up.name:
-        dst = WORK / Path(up.name).name
-        dst.write_bytes(up.getbuffer())
-        ss.update(study=str(dst), study_name=up.name, mask=None)
-        log(f"Uploaded {up.name} ({up.size/1e6:.1f} MB)")
-
-    st.header("2 · Inference")
-    if st.button("▶ Run segmentation", type="primary", disabled=ss.study is None, use_container_width=True):
-        out = str(WORK / (Path(ss.study).name.split(".")[0] + "_mask.nii.gz"))
-        t0 = time.time()
-        try:
-            with st.spinner("Segmenting..."):
-                core.run_segmentation(ss.study, out, log)
-            ss.mask = out
-            log(f"Segmentation finished in {time.time()-t0:.1f}s")
-        except Exception as e:
-            log(f"ERROR: {e}"); st.error(str(e))
-
-    vol = zooms = mask = None
-    if ss.study:
-        vol, zooms = get_volume(ss.study)
-        if ss.mask:
-            mask = get_mask(ss.mask)
-
-    st.header("3 · Viewer")
-    if vol is not None:
-        n = vol.shape[2]
-        k = st.slider("Axial slice", 0, n - 1, n // 2)
-        width = st.slider("Window width", 50, 2000, 400)
-        level = st.slider("Window level", -500, 500, 50)
-        opacity = st.slider("Mask opacity", 0.0, 1.0, 0.4)
+def header(a: dict) -> None:
+    v, mask, rep, sig = a["vol"], a["mask"], a["report"], a["signature"]
+    if v:
+        nx, ny, nz = v["shape"]
+        sx, sy, sz = v["spacing"]
+        case = (f"<strong>{tabs.h(v['name'])}</strong><span>{nx}×{ny}×{nz} · {sx:.2f}×{sy:.2f}×{sz:.2f} mm</span>"
+                + ("<span class='tag sample'>Synthetic phantom · not patient data</span>" if v["sample"] else ""))
     else:
-        st.caption("Upload a CT to enable the viewer.")
+        case = "<span>No study open</span>"
+    seg = ({"sample": "Sample mask"}.get(mask["source"], "Mask loaded") if mask
+           else "Running…" if ss.job else "No mask")
+    repst = ("Signed" if sig else ("Draft · out of date" if rep["payloadKey"] != a["payload_key"] else "Draft") if rep
+             else "Not started")
+    st.markdown(
+        "<header class='top'><div class='brand'><b>BodyComp</b><span>CT body composition</span></div>"
+        f"<div class='case'>{case}</div><div class='chips-top'>"
+        f"<span class='chip-s {'on' if mask else 'mid' if ss.job else ''}'><em>Segmentation</em>{seg}</span>"
+        f"<span class='chip-s {'on' if sig else 'mid' if rep else ''}'><em>Report</em>{repst}</span></div></header>",
+        unsafe_allow_html=True)
 
-# ---------------- Main ----------------
-st.title("Body Composition Analysis")
-if ss.study_name:
-    st.caption(f"Study **{ss.study_name}** · {vol.shape[2]} axial slices" + (" · mask loaded" if mask is not None else ""))
 
-t_view, t_metrics, t_3d, t_log = st.tabs(["Slice viewer", "Metrics", "3D", "Run log"])
+@st.fragment(run_every=1.5)
+def job_panel() -> None:
+    """Waits for the segmentation run; the rest of the page stays usable meanwhile."""
+    job = ss.job
+    if job is None:
+        return
+    if not job["thread"].is_alive():
+        S.finish_job()
+        st.rerun()
+    with st.status("Segmenting on the inference server…", state="running"):
+        st.caption("Mazurowski nnU-Net, then TotalSegmentator for the L3 level. The result opens here when it is ready.")
 
-with t_view:
-    if vol is None:
-        st.info("Upload a NIfTI CT file in the sidebar to begin.")
-    else:
-        st.image(core.render_slice(vol, k, width, level, mask, opacity), use_container_width=True,
-                 caption=f"Slice {k+1}/{vol.shape[2]} · W {width} / L {level}")
-        st.markdown(" ".join(f"<span style='color:rgb{c}'>■</span> {n}" for n, c in core.LABELS.values()),
-                    unsafe_allow_html=True)
 
-with t_metrics:
-    if mask is None:
-        st.info("Run segmentation to see metrics.")
-    else:
-        st.table(core.mask_metrics(vol, mask, zooms))
+sidebar.render()
+a = S.analysis()
+header(a)
+if ss.job:
+    job_panel()
 
-with t_3d:
-    st.info("3D rendering is being developed by the DCU team.")
+if a["vol"] is None:
+    st.info("Open a CT volume to begin.")
+    st.stop()
 
-with t_log:
-    st.code("\n".join(ss.log) or "(empty)")
+panes = st.tabs(S.TABS, key="tab", on_change="rerun")
+for pane, render in zip(panes, (tabs.overview, tabs.viewer, tabs.metrics, tabs.report, tabs.transmitted, tabs.runlog)):
+    if pane.open:
+        with pane:
+            render(a)
+
+st.markdown("<div class='footer'>Research and decision-support use only. Not a cleared medical device. A qualified reader must "
+            "verify the segmentation and the L3 level, and review any generated text, before clinical use. Model: Mazurowski Lab "
+            "muscle/fat nnU-Net (CC BY-NC 4.0, arXiv:2502.09779).</div>", unsafe_allow_html=True)
