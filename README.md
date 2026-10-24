@@ -32,9 +32,24 @@ browser ─► Streamlit app.py (:8501) ─► inference/server.py (:8000) ─�
 
 ## Run (Windows, venv in `intern2\venv`)
 
+Open two `cmd` windows in `intern2` and activate the venv in each:
+
 ```cmd
-ct-body-composition\run_server.bat       terminal 1  (segmentation server)
-ct-body-composition\run_frontend.bat     terminal 2  ->  http://localhost:8501
+venv\Scripts\activate.bat
+cd ct-body-composition
+```
+
+Terminal 1, segmentation server:
+
+```cmd
+cd inference
+python server.py
+```
+
+Terminal 2, frontend (opens http://localhost:8501):
+
+```cmd
+streamlit run app.py
 ```
 
 Settings are in `.env` (copy of `.env.example`, same names as ct-scan-test). The app opens on a synthetic phantom,

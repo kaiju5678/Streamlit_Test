@@ -8,5 +8,4 @@ venv/
 .env
 data/reports/
 data/signing-key.pem
-static/
 command.txt

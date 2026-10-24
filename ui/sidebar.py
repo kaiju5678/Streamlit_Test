@@ -68,7 +68,7 @@ def render() -> None:
         if not seg_client.configured():
             note = "No inference server configured (INFERENCE_URL)."
         elif health is None:
-            note = f"Inference server offline at {config.INFERENCE_BASE}. Start run_server.bat."
+            note = f"Inference server offline at {config.INFERENCE_BASE}. Start it with python inference/server.py."
         elif not health.get("repo_found", True):
             note = "Server cannot find CT-Muscle-and-Fat-Segmentation (set SEG_REPO)."
         else:

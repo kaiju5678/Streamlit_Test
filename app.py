@@ -1,7 +1,7 @@
 """BodyComp: CT body composition workstation in Python/Streamlit (the ct-scan-test workflow).
 
-    run_server.bat     terminal 1: segmentation server (Mazurowski nnU-Net + TotalSegmentator vertebrae)
-    run_frontend.bat   terminal 2: streamlit run app.py  ->  http://localhost:8501
+    terminal 1: cd inference && python server.py   segmentation server (Mazurowski nnU-Net + TotalSegmentator vertebrae)
+    terminal 2: streamlit run app.py               ->  http://localhost:8501
 
 Studies, masks and reports live in this browser session; only signed reports are written (DATA_DIR/reports).
 Only the de-identified metrics payload (Transmitted JSON tab) is sent to the language model.
