@@ -24,10 +24,6 @@ def r1(v):
     return None if v is None or not math.isfinite(v) else round(v * 10) / 10
 
 
-def r2(v):
-    return None if v is None or not math.isfinite(v) else round(v * 100) / 100
-
-
 # ---------------------------------------------------------------- volume statistics
 def volume_stats(hu: np.ndarray, mask: np.ndarray) -> dict:
     """One pass: per-label voxel count, HU sum and sum of squares, and per-slice counts."""
@@ -160,156 +156,46 @@ def case_ref(case_id: str) -> str:
     return "case-" + hashlib.sha256(case_id.encode()).hexdigest()[:12]
 
 
-def build_payload(*, ref: str, shape, spacing, mask: dict | None, labels: dict, scheme: str, stats: dict | None,
-                  patient: dict, l3: int | None, sample: bool, ev: dict | None) -> dict:
-    """De-identified metrics: the only data sent to the language model."""
-    p = patient
-    b = bmi_of(p)
-    rv = role_volumes(stats, labels, spacing) if stats else None
-    adipose = rv["sat"]["cm3"] + rv["vat"]["cm3"] + rv["imat"]["cm3"] if rv else None
-    tissue = adipose + rv["muscle"]["cm3"] if rv else None
+def rule_narrative(pl: dict, derived: dict) -> dict:
+    """Deterministic narrative used when the language model is not configured or fails. Uses only the eight
+    biomarkers and the indices derived from them, like the model."""
+    cm3 = lambda v: "not available" if v is None else f"{v / 1000:,.1f} cm³"  # noqa: E731
+    val = lambda v, u="": "not available" if v is None else f"{v} {u}".strip()  # noqa: E731
+    d, hu = derived, pl["muscle_density_hu"]
+    myo = d["myosteatosis_indication"]
+    vs = d["vat_sat_ratio"]
 
-    refs = []
-
-    def push(metric, value, c):
-        if c:
-            refs.append({"metric": metric, "cutoff": c["value"], "flag_when": c["flag_when"],
-                         "flagged": is_flagged(value, c), "source": c["source"]})
-
-    if ev:
-        push("skeletal_muscle_index_cm2_m2", ev["smi"], ref_smi(p))
-        push("muscle_mean_hu", ev["muscle_hu"], ref_smra(p))
-        push("vat_area_cm2", ev["vat"], ref_vat_area(p))
-
-    flags = []
-    if sample:
-        flags.append("synthetic phantom, not patient data")
-    if not mask:
-        flags.append("no segmentation loaded")
-    if mask and l3 is None:
-        flags.append("L3 slice not set")
-    if not p.get("sex") or b is None:
-        flags.append("sex, height or weight missing: index cut-offs not applied")
-
-    try:
-        age = float(p.get("age") or 0)
-    except ValueError:
-        age = 0
-    num = lambda v: float(v) if v not in (None, "") and _is_num(v) and float(v) else None  # noqa: E731
-    st = stats
+    summary = (f"Over the analysed segment ({val(pl['body_height_mm'], 'mm')} craniocaudal), skeletal muscle volume is "
+               f"{cm3(pl['muscle_volume_mm3'])} with a mean density of {val(hu, 'HU')}, and total fat volume is "
+               f"{cm3(pl['total_fat_volume_mm3'])} ({val(d['fat_share_of_body_pct'], '%')} of the body volume).")
+    muscle = (f"Muscle volume {cm3(pl['muscle_volume_mm3'])}, {val(d['muscle_share_of_body_pct'], '%')} of the body volume; "
+              f"volume-based muscle index (mean cross-section) {val(d['muscle_volume_index_cm2'], 'cm²')}. "
+              f"Mean muscle density {val(hu, 'HU')}: myosteatosis {myo or 'not assessable'}.")
+    fat = (f"Subcutaneous fat {cm3(pl['sfat_volume_mm3'])}, visceral fat {cm3(pl['vfat_volume_mm3'])} "
+           f"({val(d['visceral_share_of_fat_pct'], '%')} of total fat), intramuscular fat {cm3(pl['mfat_volume_mm3'])} "
+           f"({val(d['intramuscular_fat_to_muscle_pct'], '%')} of the muscle volume). VAT/SAT ratio {val(vs)}.")
+    metabolic = ("A visceral-predominant fat distribution (VAT/SAT ratio above 1) is associated with higher cardiometabolic risk; "
+                 "metabolic syndrome risk may be raised." if vs is not None and vs > 1 else
+                 "Fat is predominantly subcutaneous (VAT/SAT ratio at or below 1), a less adverse distribution; "
+                 "metabolic syndrome risk is not suggested by the fat distribution alone." if vs is not None else
+                 "The fat distribution cannot be assessed.")
+    likely = bool(myo and myo.startswith(("likely", "possible")))
+    sarcopenia = ("Low muscle density suggests reduced muscle quality (myosteatosis), which is associated with sarcopenia; "
+                  "muscle mass cannot be graded without height and sex-specific references." if likely else
+                  "Muscle density does not indicate myosteatosis; muscle mass cannot be graded without height and "
+                  "sex-specific references." if myo else "Muscle quality cannot be assessed.")
+    lifestyle = ["Regular resistance and aerobic exercise to maintain muscle mass and reduce visceral fat."]
+    if likely:
+        lifestyle.append("Adequate protein intake and a nutritional assessment to support muscle quality.")
+    if vs is not None and vs > 1:
+        lifestyle.append("Calorie-appropriate diet and cardiometabolic check-up (blood pressure, glucose, lipids).")
+    lifestyle.append("Repeat body-composition measurement on follow-up imaging to track change.")
     return {
-        "schema": "bodycomp.metrics/v1",
-        "case_ref": ref,
-        "synthetic_sample": sample,
-        "scan": {
-            "axial_slices": int(shape[2]),
-            "spacing_mm": [r2(float(s)) for s in spacing],
-            "segmented_slices": [st["k_min"], st["k_max"]] if st and st["k_min"] >= 0 else None,
-            "segmented_extent_mm": r1((st["k_max"] - st["k_min"] + 1) * float(spacing[2])) if st and st["k_min"] >= 0 else None,
-        },
-        "segmentation": {"source": mask["source"] if mask else "none",
-                         "scheme": scheme},
-        "patient": {"sex": p.get("sex") or None, "age_years": age if age > 0 else None,
-                    "height_cm": num(p.get("heightCm")), "weight_kg": num(p.get("weightKg")), "bmi": r1(b)},
-        "l3": {
-            "slice_index": l3,
-            "skeletal_muscle_area_cm2": r1(ev["sma"]),
-            "skeletal_muscle_index_cm2_m2": r1(ev["smi"]),
-            "muscle_mean_hu": r1(ev["muscle_hu"]),
-            "vat_area_cm2": r1(ev["vat"]),
-            "sat_area_cm2": r1(ev["sat"]),
-            "imat_area_cm2": r1(ev["imat"]),
-            "vat_sat_ratio": r2(ev["vat_sat"]),
-        } if ev else None,
-        "volumes_segmented_range": {
-            "muscle_cm3": r1(rv["muscle"]["cm3"]),
-            "muscle_mean_hu": r1(rv["muscle"]["mean_hu"]),
-            "sat_cm3": r1(rv["sat"]["cm3"]),
-            "vat_cm3": r1(rv["vat"]["cm3"]),
-            "imat_cm3": r1(rv["imat"]["cm3"]),
-            "adipose_total_cm3": r1(adipose),
-            "adipose_share_pct": r1(adipose / tissue * 100) if tissue else None,
-        } if rv else None,
-        "references": refs,
-        "quality_flags": flags,
-    }
-
-
-def _is_num(v) -> bool:
-    try:
-        float(v)
-        return True
-    except (TypeError, ValueError):
-        return False
-
-
-def rule_narrative(pl: dict) -> dict:
-    """Deterministic narrative used when no language model is configured. Uses only payload values."""
-    l, v = pl["l3"], pl["volumes_segmented_range"]
-    ref = lambda m: next((r for r in pl["references"] if r["metric"] == m), None)  # noqa: E731
-    fmt = lambda x, u: "not available" if x is None else f"{x} {u}".strip()  # noqa: E731
-    smi, hu, vat = ref("skeletal_muscle_index_cm2_m2"), ref("muscle_mean_hu"), ref("vat_area_cm2")
-
-    findings = []
-    if smi and smi["flagged"]:
-        findings.append("low skeletal muscle index")
-    if hu and hu["flagged"]:
-        findings.append("low muscle attenuation")
-    if vat and vat["flagged"]:
-        findings.append("visceral fat area above the reference cut-off")
-
-    if not l:
-        summary = "L3 metrics are not available yet. Load a segmentation and set the L3 slice."
-    elif findings:
-        summary = f"At L3 the measurements show {', '.join(findings)}. " + (
-            "Low muscle mass together with visceral obesity is consistent with a sarcopenic obesity pattern; clinical correlation is required."
-            if smi and smi["flagged"] and vat and vat["flagged"] else "Clinical correlation is required.")
-    else:
-        summary = "At L3 the measured values are within the configured reference cut-offs."
-
-    sc, seg = pl["scan"], pl["segmentation"]
-    spacing = " × ".join(str(x) for x in sc["spacing_mm"])
-    examination = f"{sc['axial_slices']} axial slices at {spacing} mm. Segmentation source: {seg['source']} ({seg['scheme']} labels)"
-    if sc["segmented_extent_mm"]:
-        examination += f", covering {sc['segmented_extent_mm']} mm craniocaudally"
-    examination += "."
-    if l:
-        examination += f" L3 analysed on axial slice {l['slice_index'] + 1}."
-
-    def cut(c, word_yes, word_no):
-        if not c:
-            return ""
-        sym = "<" if c["flag_when"] == "below" else ">"
-        return f" (cut-off {sym}{c['cutoff']}; {word_yes if c['flagged'] else word_no})"
-
-    if l:
-        muscle = (f"Skeletal muscle area {fmt(l['skeletal_muscle_area_cm2'], 'cm²')}, skeletal muscle index "
-                  f"{fmt(l['skeletal_muscle_index_cm2_m2'], 'cm²/m²')}{cut(smi, 'below', 'not below')}. "
-                  f"Mean muscle attenuation {fmt(l['muscle_mean_hu'], 'HU')}{cut(hu, 'below', 'not below')}.")
-        if v and v["muscle_cm3"] is not None:
-            muscle += f" Muscle volume over the segmented range {v['muscle_cm3']} cm³."
-        adipose = (f"Visceral fat area {fmt(l['vat_area_cm2'], 'cm²')}{cut(vat, 'above', 'not above')}, subcutaneous fat area "
-                   f"{fmt(l['sat_area_cm2'], 'cm²')}, intermuscular fat area {fmt(l['imat_area_cm2'], 'cm²')}, "
-                   f"VAT/SAT ratio {fmt(l['vat_sat_ratio'], '')}.")
-        if v and v["adipose_total_cm3"] is not None:
-            adipose += (f" Total adipose volume over the segmented range {v['adipose_total_cm3']} cm³ "
-                        f"({v['adipose_share_pct']}% of segmented tissue).")
-    else:
-        muscle = adipose = "Not available."
-
-    recs = []
-    if (smi and smi["flagged"]) or (hu and hu["flagged"]):
-        recs.append("Consider nutritional and physical-function assessment for low muscle mass or quality.")
-    if vat and vat["flagged"]:
-        recs.append("Consider cardiometabolic risk assessment in the context of visceral obesity.")
-    if l:
-        recs.append("Repeat body-composition measurement on follow-up imaging to track change.")
-
-    return {
-        "summary": summary, "examination": examination, "muscle": muscle, "adipose": adipose,
-        "recommendations": recs,
-        "limitations": " ".join(["Automated segmentation must be reviewed by a qualified reader."]
-                                + [f"Note: {f}." for f in pl["quality_flags"]]),
+        "summary": summary, "muscle": muscle, "fat": fat, "metabolic": metabolic, "sarcopenia": sarcopenia,
+        "lifestyle": lifestyle,
+        "limitations": ("Rule-based draft. Automated segmentation must be reviewed by a qualified reader. Age, sex, height "
+                        "and weight are not part of the transmitted data, so volume cut-offs are not applied; the "
+                        "myosteatosis cut-offs were defined on a single L3 slice, here applied to the segment mean."),
     }
 
 
@@ -330,8 +216,6 @@ def unverified_numbers(text: str, pl: dict) -> list[str]:
                 walk(x)
 
     walk(pl)
-    if pl.get("l3"):
-        known += [pl["l3"]["slice_index"] + 1, 3]
     out: list[str] = []
     for s in re.findall(r"-?\d+(?:\.\d+)?", text):
         x = float(s)

@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 import config
+from core import biomarkers
 
 _cached: dict | None = None
 
@@ -52,13 +53,14 @@ def signing_key() -> dict:
     return _cached
 
 
-def sign(payload: dict, report: dict, reader: str, remarks: str, authenticated_user: str | None = None) -> dict:
+def sign(payload: dict, report: dict, reader: str, remarks: str, case_ref: str, synthetic: bool,
+         authenticated_user: str | None = None) -> dict:
     reader = (reader or "").strip()
     if not reader:
         raise ValueError("Enter the reading physician before signing.")
-    if payload.get("schema") != "bodycomp.metrics/v1" or not report.get("narrative"):
+    if biomarkers.violations(payload) or not report.get("narrative"):
         raise ValueError("Missing report or metrics.")
-    if payload.get("synthetic_sample"):
+    if synthetic:
         raise ValueError("The synthetic sample cannot be signed.")
 
     signed_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
@@ -70,6 +72,7 @@ def sign(payload: dict, report: dict, reader: str, remarks: str, authenticated_u
         "authenticated_user": authenticated_user,
         "decision": "amended" if report.get("edited") else "approved",
         "remarks": (remarks or "")[:5000],
+        "case_ref": case_ref,
         "metrics": payload,
         "narrative": report["narrative"],
         "provenance": {
@@ -87,11 +90,11 @@ def sign(payload: dict, report: dict, reader: str, remarks: str, authenticated_u
 
     out_dir = config.DATA_DIR / "reports"
     out_dir.mkdir(parents=True, exist_ok=True)
-    file = f"{payload['case_ref']}_{signed_at.replace(':', '-').replace('.', '-')}.json"
+    file = f"{case_ref}_{signed_at.replace(':', '-').replace('.', '-')}.json"
     (out_dir / file).write_text(json.dumps({"record": record, "sha256": sha, "signature": signature,
                                             "algorithm": "Ed25519", "key_fingerprint": k["fingerprint"]},
                                            indent=2, ensure_ascii=False), encoding="utf-8")
-    print(json.dumps({"event": "report.signed", "case_ref": payload["case_ref"], "reader": reader, "sha256": sha, "file": file}),
+    print(json.dumps({"event": "report.signed", "case_ref": case_ref, "reader": reader, "sha256": sha, "file": file}),
           flush=True)
     return {"sha256": sha, "signature": signature, "algorithm": "Ed25519", "keyFingerprint": k["fingerprint"],
             "signedAt": signed_at, "reader": reader, "authenticatedUser": authenticated_user, "file": file}

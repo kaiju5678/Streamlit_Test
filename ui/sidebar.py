@@ -1,7 +1,6 @@
 """Sidebar: data input, segmentation, viewer controls, L3, patient, report endpoint, device status."""
 from __future__ import annotations
 
-import pandas as pd
 import streamlit as st
 
 import config
@@ -17,6 +16,12 @@ ss = st.session_state
 @st.cache_data(ttl=10, show_spinner=False)
 def inference_health():
     return seg_client.health()
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _llm_reachable(url: str) -> str | None:
+    """Checked once a minute (url is the cache key): off the lab network every check waits for the 2 s timeout."""
+    return llm_client.reachable()
 
 
 def sec(title: str) -> None:
@@ -67,29 +72,11 @@ def render() -> None:
         elif not health.get("repo_found", True):
             note = "Server cannot find CT-Muscle-and-Fat-Segmentation (set SEG_REPO)."
         else:
-            note = ("Mazurowski nnU-Net: muscle · SAT · VAT · IMAT"
-                    + (" + L3 from TotalSegmentator" if health.get("totalsegmentator") else " · set L3 by hand")
-                    if health.get("model") == "mazurowski" else f"Server model: {health['model']}")
-        if v is not None and v["sample"]:
-            note = note.rstrip(".") + ". The sample phantom already has a mask."
+            model = "Mazurowski nnU-Net" if health.get("model") == "mazurowski" else health["model"]
+            note = f"Model: {model}" + (" + TotalSegmentator" if health.get("totalsegmentator") else "")
         st.markdown(f"<p class='note'>{note}</p>", unsafe_allow_html=True)
         if mask:
-            df = pd.DataFrame([{"Show": d["visible"], "Label": L, "Name": d["name"], "Role": d["role"]} for L, d in ss.labels.items()])
-            out = st.data_editor(
-                df, key=f"labels_{ss.labels_rev}", hide_index=True, width="stretch",
-                column_config={"Show": st.column_config.CheckboxColumn(width="small"),
-                               "Label": st.column_config.NumberColumn(width="small", disabled=True),
-                               "Role": st.column_config.SelectboxColumn(options=list(lb.ROLES), required=True)})
-            new = {}
-            for row in out.to_dict("records"):
-                L = int(row["Label"])
-                old = ss.labels[L]
-                role = row["Role"] or old["role"]
-                new[L] = {"name": row["Name"] or old["name"], "role": role, "visible": bool(row["Show"]),
-                          "color": old["color"] if role == old["role"] else lb.ROLE_COLOR[role]}
-            if new != ss.labels:
-                ss.labels = new
-                ss.mesh = {}
+            # names and roles come from the mask when it is loaded; show / hide is the checkbox row under the 2D view
             st.markdown("<div class='legend side'>" + "".join(
                 f"<span><i style='background:{lb.rgb(d['color'])}'></i>{d['name']}</span>" for d in ss.labels.values()) + "</div>",
                 unsafe_allow_html=True)
@@ -98,8 +85,7 @@ def render() -> None:
         sec("3 · Viewer controls")
         if v is not None:
             live.sliders(v)
-        ss.w_preset = next((n for n, w, l in lb.PRESETS if w == ss.wl["w"] and l == ss.wl["l"]), None)
-        st.pills("Window presets", [p[0] for p in lb.PRESETS], key="w_preset", on_change=S.cb_wl_preset)
+        live.window_presets()
         c1, c2 = st.columns(2)
         ss.w_ww, ss.w_wl = ss.wl["w"], ss.wl["l"]
         c1.number_input("Width (HU)", min_value=1, step=10, key="w_ww", on_change=S.cb_wl_number)
@@ -133,8 +119,10 @@ def render() -> None:
         # ---- 4 · Report endpoint
         sec("4 · Report endpoint")
         on = llm_client.configured()
-        st.markdown(f"<p class='status'><span class='led {'on' if on else ''}'></span>"
-                    f"{config.LLM_MODEL if on else 'No language model · rule-based drafts'}</p>", unsafe_allow_html=True)
+        why = _llm_reachable(config.LLM_URL) if on else None
+        st.markdown(f"<p class='status{' err' if why else ''}'><span class='led {'bad' if why else 'on' if on else ''}'></span>"
+                    f"{config.LLM_MODEL if on else 'No language model · rule-based drafts'}"
+                    f"{f' · {why}' if why else ''}</p>", unsafe_allow_html=True)
         st.button("Generate AI report" if on else "Generate draft report", on_click=S.cb_generate,
                   disabled=v is None, width="stretch")
 

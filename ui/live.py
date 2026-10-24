@@ -3,9 +3,11 @@
 - Slice viewers (axial / coronal / sagittal): every slice of a view is sent to the browser once (windowed grey JPEGs
   + label PNGs, cached in `window.__bcMpr`), so the wheel, the sliders and the opacity redraw instantly.
 - Sidebar live sliders: axial scrub and mask opacity.
+- Window presets: 3 × 2 small buttons, each showing the width/level it sets.
 - File buttons: Open CT / Open mask / Sample / DICOM ▾ open the browser's file picker of hidden st.file_uploaders,
   so files still go through Streamlit's upload endpoint (large CTs are fine).
-- 3D model: Plotly mesh drawn in the browser; the axial-slice plane follows the scrub live.
+- 3D model: Plotly mesh drawn in the browser; the axial-slice plane follows the scrub live. Checkboxes under the view
+  show / hide each surface (bone from the CT included) and a Reset view button brings the camera back.
 
 The pieces talk to each other in the page with window events:
   bodycomp:cur      {axis: 'i'|'j'|'k', value, src}
@@ -25,6 +27,7 @@ import streamlit as st
 from PIL import Image
 
 import config
+from core import labels as lb
 from core import render
 from ui import state as S
 
@@ -58,6 +61,15 @@ canvas { display: block; transform-origin: center center; cursor: crosshair; }
 .bar { display: flex; align-items: center; gap: 10px; }
 input[type=range] { flex: 1; accent-color: #f0b44c; }
 .num { min-width: 74px; text-align: right; color: #d9e1ea; }
+.checks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 4px 2px 0;
+          font: 13px 'IBM Plex Sans', 'Segoe UI', sans-serif; color: #d9e1ea; }
+.checks:empty { display: none; }
+.checks label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+.checks input { width: 15px; height: 15px; margin: 0; cursor: pointer; accent-color: var(--c); }
+.checks i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--c); }
+.checks label.off { color: #66768a; }
+.checks label.off i { opacity: 0.35; }
+.checks .all { margin-left: auto; color: #8a9ab0; font-size: 12px; cursor: pointer; text-decoration: underline; }
 """
 
 VIEWER_JS = r"""
@@ -80,11 +92,48 @@ function build(root) {
   const wrap = document.createElement('div'); wrap.className = 'wrap';
   wrap.innerHTML = `<div class="stage"><canvas></canvas><div class="hud"></div><div class="probe"></div>
     <div class="tag"></div><div class="hint">wheel: slice · ctrl+wheel: zoom · drag: pan · double-click: reset</div></div>
-    <div class="bar"><input type="range" min="0" step="1"><span class="num"></span></div>`;
+    <div class="bar"><input type="range" min="0" step="1"><span class="num"></span></div><div class="checks"></div>`;
   root.appendChild(wrap);
   S.stage = wrap.querySelector('.stage'); S.cv = wrap.querySelector('canvas'); S.ctx = S.cv.getContext('2d');
   S.hud = wrap.querySelector('.hud'); S.probe = wrap.querySelector('.probe'); S.tag = wrap.querySelector('.tag');
-  S.range = wrap.querySelector('input'); S.num = wrap.querySelector('.num');
+  S.range = wrap.querySelector('input'); S.num = wrap.querySelector('.num'); S.checks = wrap.querySelector('.checks');
+
+  // Label visibility: a checkbox changes every viewer on the page at once (bodycomp:labels), and Python hears it
+  // when the clicking stops. Until Python sends the same map back, the local one wins.
+  S.vis = () => {
+    const d = S.data, o = cache().vis;
+    if (o && o.mask_id === d.mask_id) {
+      if (Object.keys(o.map).every((L) => !!d.visible[L] === o.map[L]) || Date.now() - o.t > 5000) cache().vis = null;
+      else return o.map;
+    }
+    return d.visible;
+  };
+  S.setVis = (map) => {
+    cache().vis = { mask_id: S.data.mask_id, map, t: Date.now() };
+    window.dispatchEvent(new CustomEvent('bodycomp:labels', { detail: { src: S.id } }));
+    clearTimeout(S.timers.vis);
+    S.timers.vis = setTimeout(() => S.trigger('visible', { map, t: Date.now() }), 280);
+  };
+  S.buildChecks = () => {
+    const d = S.data, vis = S.vis(), ls = Object.keys(d.colors).map(Number).sort((a, b) => a - b);
+    const sig = d.checks ? `${d.mask_id}|${d.color_sig}|${ls.map((L) => `${L}:${d.names[L]}:${!!vis[L]}`).join(',')}` : '';
+    if (S.checkSig === sig) return;
+    S.checkSig = sig; S.checks.innerHTML = '';
+    if (!sig) return;
+    const all = document.createElement('span'); all.className = 'all';
+    const every = () => ls.every((L) => !!S.vis()[L]);
+    ls.forEach((L) => {
+      const lab = document.createElement('label'), cb = document.createElement('input'), c = d.colors[L];
+      cb.type = 'checkbox'; cb.checked = !!vis[L];
+      lab.style.setProperty('--c', `rgb(${c[0]},${c[1]},${c[2]})`); lab.classList.toggle('off', !cb.checked);
+      lab.append(cb, document.createElement('i'), document.createTextNode(d.names[L]));
+      cb.addEventListener('change', () => S.setVis({ ...S.vis(), [L]: cb.checked }));
+      S.checks.appendChild(lab);
+    });
+    all.textContent = every() ? 'Hide all' : 'Show all';
+    all.addEventListener('click', () => { const v = !every(); S.setVis(Object.fromEntries(ls.map((L) => [L, v]))); });
+    S.checks.appendChild(all);
+  };
 
   // Python gets the whole crosshair once the movement stops (one trigger, so linked axes are not lost).
   S.commit = () => { clearTimeout(S.timers.cur);
@@ -184,12 +233,16 @@ function build(root) {
     G.lab[key] = out; return out;
   };
   S.overlay = (idx) => {                     // full-alpha label colours; opacity is applied when drawing
-    const d = S.data, key = `${d.mask_id}|${idx}|${d.color_sig}`;
+    const d = S.data, vis = S.vis();
+    const csig = d.color_sig + '|' + Object.keys(d.colors).filter((L) => vis[L]).join(','), key = `${d.mask_id}|${idx}|${csig}`;
     if (S.ov.has(key)) return S.ov.get(key);
     const lab = S.labels(idx); if (!lab) return null;
-    if (S.lutSig !== d.color_sig) {          // label → RGBA as one 32-bit word (little-endian ABGR)
-      S.lut = new Uint32Array(256); S.lutSig = d.color_sig;
-      for (const L in d.colors) { const c = d.colors[L]; S.lut[L] = ((255 << 24) | (c[2] << 16) | (c[1] << 8) | c[0]) >>> 0; }
+    if (S.lutSig !== csig) {                 // label → RGBA as one 32-bit word (little-endian ABGR); hidden labels stay 0
+      S.lut = new Uint32Array(256); S.lutSig = csig;
+      for (const L in d.colors) {
+        if (!vis[L]) continue;
+        const c = d.colors[L]; S.lut[L] = ((255 << 24) | (c[2] << 16) | (c[1] << 8) | c[0]) >>> 0;
+      }
     }
     const oc = document.createElement('canvas'); oc.width = d.ncol; oc.height = d.nrow;
     const ox = oc.getContext('2d'), id = ox.createImageData(d.ncol, d.nrow), px = new Uint32Array(id.data.buffer), lut = S.lut;
@@ -256,12 +309,16 @@ export default function (component) {
   const now = Date.now();
   for (const a of ['i', 'j', 'k']) if (now - S.local[a] > 1000) S.cur[a] = data.cur[a];
   if (now - S.local.o > 1000) S.opacity = data.opacity;
-  S.layout(); S.paint();
-  if (S.onCur) { window.removeEventListener('bodycomp:cur', S.onCur); window.removeEventListener('bodycomp:opacity', S.onOp); }
+  S.layout(); S.paint(); S.buildChecks();
+  const off = () => { window.removeEventListener('bodycomp:cur', S.onCur); window.removeEventListener('bodycomp:opacity', S.onOp);
+                      window.removeEventListener('bodycomp:labels', S.onLab); };
+  if (S.onCur) off();
   S.onCur = (e) => { if (e.detail.src !== S.id) { S.cur[e.detail.axis] = e.detail.value; S.local[e.detail.axis] = Date.now(); S.draw(); } };
   S.onOp = (e) => { S.opacity = e.detail.value; S.local.o = Date.now(); S.draw(); };
+  S.onLab = () => { S.buildChecks(); S.draw(); };
   window.addEventListener('bodycomp:cur', S.onCur); window.addEventListener('bodycomp:opacity', S.onOp);
-  return () => { window.removeEventListener('bodycomp:cur', S.onCur); window.removeEventListener('bodycomp:opacity', S.onOp); };
+  window.addEventListener('bodycomp:labels', S.onLab);
+  return off;
 }
 """
 
@@ -360,7 +417,13 @@ export default function (component) {
     e.stopPropagation(); closeAll();
     const el = input(b.dataset.pick);
     if (!el) { note.textContent = 'Uploader not ready, try again.'; return; }
-    el.onchange = () => { const f = el.files; if (f && f.length) note.textContent = `Uploading ${f.length > 1 ? f.length + ' files' : f[0].name}…`; };
+    el.onchange = () => {
+      const f = el.files; if (!f || !f.length) return;
+      // Streamlit rejects a wrong type inside the hidden uploader, so say it here instead of showing nothing
+      const ok = (el.accept || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+      const bad = ok.length ? [...f].find((x) => !ok.some((ext) => x.name.toLowerCase().endsWith(ext))) : null;
+      note.textContent = bad ? `${bad.name}: not a ${ok.join(' / ')} file` : `Uploading ${f.length > 1 ? f.length + ' files' : f[0].name}…`;
+    };
     el.click();
   }));
   q('[data-act=sample]').addEventListener('click', () => F.trigger('action', 'sample'));
@@ -372,9 +435,77 @@ export default function (component) {
 }
 """
 
+# ================================================================= window presets
+PRESETS_CSS = """
+.wp-title { font: 14px "Source Sans Pro", sans-serif; color: #d9e1ea; margin-bottom: 6px; }
+.wp { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.wp button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+             padding: 4px 2px; border-radius: 6px; cursor: pointer; font: 13px "Source Sans Pro", sans-serif;
+             color: #d9e1ea; background: #11171f; border: 1px solid #2e3b4b; }
+.wp button:hover { border-color: #f0b44c; }
+.wp button.on { border-color: #f0b44c; background: rgba(240,180,76,0.12); }
+.wp b { font-weight: 600; font-size: 12px; text-align: center; line-height: 1.2; white-space: nowrap; }
+.wp button.on b { color: #f0b44c; }
+.wp span { font: 11px ui-monospace, Consolas, monospace; color: #8a9ab0; line-height: 1.2; }
+"""
+
+PRESETS_JS = r"""
+export default function (component) {
+  const { data, parentElement, setTriggerValue } = component;
+  let P = parentElement.__bcp;
+  if (!P) {
+    P = parentElement.__bcp = { local: 0 };
+    const title = document.createElement('div'); title.className = 'wp-title'; title.textContent = 'Window presets';
+    P.grid = document.createElement('div'); P.grid.className = 'wp';
+    parentElement.append(title, P.grid);
+  }
+  P.trigger = setTriggerValue;
+  if (Date.now() - P.local > 1000) P.sel = [data.w, data.l];
+  const mark = () => P.grid.querySelectorAll('button').forEach((b) => {
+    b.classList.toggle('on', +b.dataset.w === P.sel[0] && +b.dataset.l === P.sel[1]);
+  });
+  const sig = JSON.stringify(data.presets);
+  if (P.sig !== sig) {
+    P.sig = sig; P.grid.innerHTML = '';
+    for (const [name, w, l] of data.presets) {
+      const b = document.createElement('button');
+      b.dataset.w = w; b.dataset.l = l; b.title = `${name}: width ${w} HU, level ${l} HU`;
+      b.innerHTML = `<b></b><span>${w}/${l}</span>`; b.querySelector('b').textContent = name;
+      b.addEventListener('click', () => {
+        P.sel = [w, l]; P.local = Date.now(); mark();       // highlight at once; Python redraws the slices
+        P.trigger('pick', { w, l, t: Date.now() });
+      });
+      P.grid.appendChild(b);
+    }
+  }
+  mark();
+}
+"""
+
 # ================================================================= 3D model
+MESH_CSS = """
+.bcm-stage { position: relative; border-radius: 6px; overflow: hidden;
+             background: radial-gradient(ellipse at 50% 40%, #1b2638 0%, #0b1018 75%); }
+.bcm-reset { position: absolute; right: 8px; top: 8px; z-index: 5; padding: 4px 10px; border-radius: 4px; cursor: pointer;
+             font: 12px 'IBM Plex Sans', 'Segoe UI', sans-serif; color: #d9e1ea; background: rgba(17,23,31,0.85);
+             border: 1px solid #2a3646; }
+.bcm-reset:hover { border-color: #f0b44c; color: #f0b44c; }
+.bcm-hint { position: absolute; left: 10px; bottom: 6px; z-index: 5; font: 11px 'IBM Plex Sans', 'Segoe UI', sans-serif;
+            color: #66768a; pointer-events: none; }
+.bcm-checks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 10px 2px 2px;
+              font: 13px 'IBM Plex Sans', 'Segoe UI', sans-serif; color: #d9e1ea; }
+.bcm-checks label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+.bcm-checks input { width: 15px; height: 15px; margin: 0; cursor: pointer; accent-color: var(--c); }
+.bcm-checks i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--c); }
+.bcm-checks label.off { color: #66768a; }
+.bcm-checks label.off i { opacity: 0.35; }
+.bcm-all { margin-left: auto; color: #8a9ab0; font-size: 12px; cursor: pointer; text-decoration: underline; }
+"""
+
 MESH_JS = r"""
 const cache = () => (window.__bcMesh = window.__bcMesh || {});
+// from anterior and a little above: patient right (+x) on the viewer's left, as on the slices
+const CAMERA = { eye: { x: 0, y: 1.9, z: 0.55 }, up: { x: 0, y: 0, z: 1 }, center: { x: 0, y: 0, z: 0 } };
 function loadPlotly(url) {
   if (window.Plotly) return Promise.resolve(window.Plotly);
   if (!window.__bcPlotlyP) window.__bcPlotlyP = new Promise((res, rej) => {
@@ -389,8 +520,20 @@ export default function (component) {
   if (data.meshes) C[data.mesh_id] = data.meshes;
   let M = parentElement.__bcm;
   if (!M) {
-    M = parentElement.__bcm = { div: document.createElement('div'), sig: '', local: 0 };
-    M.div.style.width = '100%'; parentElement.appendChild(M.div);
+    M = parentElement.__bcm = { sig: '', local: 0, vis: {} };
+    M.stage = document.createElement('div'); M.stage.className = 'bcm-stage';
+    M.div = document.createElement('div'); M.div.style.width = '100%';
+    M.reset = document.createElement('button'); M.reset.className = 'bcm-reset'; M.reset.textContent = '⟲ Reset view';
+    M.reset.title = 'Back to the front view';
+    const hint = document.createElement('div'); hint.className = 'bcm-hint';
+    hint.textContent = 'drag: rotate · right-drag: pan · wheel: zoom';
+    M.checks = document.createElement('div'); M.checks.className = 'bcm-checks';
+    M.stage.append(M.div, M.reset, hint); parentElement.append(M.stage, M.checks);
+    // Keep rotating after the cursor leaves the frame: capture the pointer on the WebGL canvas until the button is
+    // released, so its mousemove keeps firing and mouseleave/mouseout (which reset Plotly's drag) do not.
+    M.div.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.target.tagName === 'CANVAS') e.target.setPointerCapture(e.pointerId);
+    }, true);
   }
   M.data = data;
   M.div.style.height = data.height + 'px';
@@ -408,31 +551,82 @@ export default function (component) {
       obj.update(fd); sc.glplot.redraw();
     } else Plotly.restyle(gd, { z: [zs] }, [M.plane]);
   };
+  const on = (name) => M.vis[name] !== false;
+  // One checkbox per surface (and the slice plane) under the view; the state survives reruns of the app.
+  M.buildChecks = (Plotly, items) => {
+    M.checks.innerHTML = '';
+    const boxes = items.map((it, idx) => {
+      const lab = document.createElement('label'), cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.checked = on(it.name);
+      lab.style.setProperty('--c', it.color); lab.classList.toggle('off', !cb.checked);
+      lab.append(cb, document.createElement('i'), document.createTextNode(it.name));
+      cb.addEventListener('change', () => {
+        M.vis[it.name] = cb.checked; lab.classList.toggle('off', !cb.checked);
+        Plotly.restyle(M.div, { visible: cb.checked }, [idx]);
+        if (idx === M.plane && cb.checked) M.movePlane(Plotly);
+      });
+      M.checks.appendChild(lab);
+      return cb;
+    });
+    const all = document.createElement('span'); all.className = 'bcm-all';
+    const label = () => { all.textContent = boxes.every((b) => b.checked) ? 'Hide all' : 'Show all'; };
+    boxes.forEach((b) => b.addEventListener('change', label));
+    all.addEventListener('click', () => {
+      const v = !boxes.every((b) => b.checked);
+      items.forEach((it, idx) => { M.vis[it.name] = v; boxes[idx].checked = v; boxes[idx].parentElement.classList.toggle('off', !v); });
+      Plotly.restyle(M.div, { visible: v }, items.map((_, idx) => idx));
+      if (v) M.movePlane(Plotly);
+      label();
+    });
+    label(); M.checks.appendChild(all);
+  };
   loadPlotly(data.plotly_url).then((Plotly) => {
     const sig = data.mesh_id + '|' + data.height;
     if (M.sig !== sig) {
       M.sig = sig;
       const traces = meshes.map((m) => ({ type: 'mesh3d', x: m.x, y: m.y, z: m.z, i: m.i, j: m.j, k: m.k, color: m.color,
-        opacity: m.opacity, name: m.name, showlegend: true, hoverinfo: 'name', flatshading: false,
-        lighting: { ambient: 0.45, diffuse: 0.8, specular: 0.25, roughness: 0.6 } }));
+        opacity: m.opacity, name: m.name, visible: on(m.name), hoverinfo: 'name', flatshading: false,
+        lighting: { ambient: 0.38, diffuse: 0.85, specular: m.opacity >= 0.9 ? 0.5 : 0.2, roughness: 0.35, fresnel: 0.3 },
+        lightposition: { x: 1200, y: 3000, z: 2500 } }));
       const z = zOf(M.k), ex = data.ex, ey = data.ey;
       traces.push({ type: 'mesh3d', x: [0, ex, ex, 0], y: [0, 0, ey, ey], z: [z, z, z, z], i: [0, 0], j: [1, 2], k: [2, 3],
-        color: '#f0b44c', opacity: 0.22, name: 'Axial slice', hoverinfo: 'name', showlegend: true });
+        color: '#f0b44c', opacity: 0.25, name: 'Axial slice', visible: on('Axial slice'), hoverinfo: 'name' });
       M.plane = traces.length - 1;
-      // fixed ranges (the whole volume), so the plane is never clipped when it leaves the segmented range
-      const ax = (hi) => ({ visible: false, showbackground: false, range: [0, hi], autorange: false });
+      // The camera turns about the middle of the scene box, so centre the box on the model: otherwise a segmented range
+      // that sits high or low in the CT swings round an empty point. x/y still cover the whole volume (the plane is
+      // never cut sideways); z is the model's height, so the plane disappears above / below the segmented range.
+      const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+      meshes.forEach((m) => [m.x, m.y, m.z].forEach((a, d) => {
+        for (let n = 0; n < a.length; n++) { if (a[n] < lo[d]) lo[d] = a[n]; if (a[n] > hi[d]) hi[d] = a[n]; }
+      }));
+      const ext = [ex, ey, data.ez];
+      const rng = (d) => {
+        if (!(hi[d] > lo[d])) return [0, ext[d]];
+        const c = (lo[d] + hi[d]) / 2, h = d < 2 ? Math.max(c, ext[d] - c) : (hi[d] - lo[d]) * 0.55;
+        return [c - h, c + h];
+      };
+      const ax = (d) => ({ visible: false, showbackground: false, range: rng(d), autorange: false });
+      // True-mm proportions from these ranges. aspectmode 'data' would take them from the visible traces instead, so
+      // hiding the (wider) slice plane with its checkbox rescaled the whole model.
+      const len = [0, 1, 2].map((d) => rng(d)[1] - rng(d)[0]), top = Math.max(...len);
+      const aspect = { x: len[0] / top, y: len[1] / top, z: len[2] / top };
       Plotly.react(M.div, traces, {
-        margin: { l: 0, r: 0, t: 0, b: 0 }, paper_bgcolor: 'rgba(0,0,0,0)', uirevision: 'mesh',
-        font: { color: '#d9e1ea', size: 11 }, legend: { orientation: 'h', y: 0.02, x: 0 },
-        scene: { xaxis: ax(ex), yaxis: ax(ey), zaxis: ax(data.ez), aspectmode: 'data', bgcolor: 'rgba(0,0,0,0)',
-                 camera: { eye: { x: 0, y: 2.0, z: 0.6 }, up: { x: 0, y: 0, z: 1 } } },
-      }, { displaylogo: false, responsive: true });
+        margin: { l: 0, r: 0, t: 0, b: 0 }, paper_bgcolor: 'rgba(0,0,0,0)', uirevision: 'mesh', showlegend: false,
+        font: { color: '#d9e1ea', size: 11 },
+        hoverlabel: { bgcolor: 'rgba(17,23,31,0.94)', bordercolor: '#2a3646', font: { color: '#dbe4f0' } },
+        // turntable: left-right drag spins about the body's long axis and up-down tilts, the head always stays up
+        // (orbit tumbles freely and rolls the model sideways)
+        scene: { xaxis: ax(0), yaxis: ax(1), zaxis: ax(2), aspectmode: 'manual', aspectratio: aspect, bgcolor: 'rgba(0,0,0,0)',
+                 camera: CAMERA, dragmode: 'turntable' },
+      }, { displaylogo: false, responsive: true, displayModeBar: false });
+      M.buildChecks(Plotly, traces.map((t) => ({ name: t.name, color: t.color })));
     } else M.movePlane(Plotly);
+    M.reset.onclick = () => Plotly.relayout(M.div, { 'scene.camera': JSON.parse(JSON.stringify(CAMERA)) });
     if (M.onCur) window.removeEventListener('bodycomp:cur', M.onCur);
     M.onCur = (e) => {
       if (e.detail.axis !== 'k') return;
       M.k = e.detail.value; M.local = Date.now();
-      if (M.raf) return;
+      if (M.raf || !on('Axial slice')) return;
       M.raf = requestAnimationFrame(() => { M.raf = 0; M.movePlane(Plotly); });
     };
     window.addEventListener('bodycomp:cur', M.onCur);
@@ -444,7 +638,8 @@ export default function (component) {
 _viewer = st.components.v2.component("bodycomp_slice_viewer", css=VIEWER_CSS, js=VIEWER_JS)
 _sliders = st.components.v2.component("bodycomp_live_sliders", css=SLIDERS_CSS, js=SLIDERS_JS)
 _files = st.components.v2.component("bodycomp_file_buttons", html=FILES_HTML, css=FILES_CSS, js=FILES_JS)
-_mesh = st.components.v2.component("bodycomp_mesh3d", js=MESH_JS, isolate_styles=False)
+_presets = st.components.v2.component("bodycomp_window_presets", css=PRESETS_CSS, js=PRESETS_JS)
+_mesh = st.components.v2.component("bodycomp_mesh3d", css=MESH_CSS, js=MESH_JS, isolate_styles=False)
 
 
 # ================================================================= stacks (sent once per browser session)
@@ -524,6 +719,18 @@ def _on_click(view: str, key: str) -> None:
         S.apply_click(view, int(c["i"]), int(c["j"]), int(c["k"]))
 
 
+def _on_visible(key: str) -> None:
+    vis = (_value(key, "visible") or {}).get("map") or {}
+    if vis and ss.labels:
+        ss.labels = {L: {**d, "visible": bool(vis.get(str(L), d["visible"]))} for L, d in ss.labels.items()}
+
+
+def _on_preset(key: str) -> None:
+    p = _value(key, "pick")
+    if p:
+        ss.wl = {"w": max(1, int(p["w"])), "l": int(p["l"])}
+
+
 def _on_missing(key: str) -> None:
     sid = _value(key, "missing")
     if sid:
@@ -536,12 +743,14 @@ def _on_action(key: str) -> None:
 
 
 # ================================================================= mounts
-def viewer(a: dict, view: str, key: str, height: int, crosshair: bool = True, link: bool = False) -> None:
+def viewer(a: dict, view: str, key: str, height: int, crosshair: bool = True, link: bool = False,
+           checks: bool = False) -> None:
+    """checks: show / hide checkboxes of the labels under this view (they act on every view)."""
     v, mask, labels = a["vol"], a["mask"], a["labels"]
     ca, ra, sa = AXES[view]
     gid, guris = gray_stack(v, view, a["wl"])
     mid, muris = mask_stack(mask, view) if mask else (None, None)
-    colors = {int(L): list(d["color"]) for L, d in labels.items() if d["visible"]} if mask else {}
+    colors = {int(L): list(d["color"]) for L, d in labels.items()} if mask else {}
     sp = dict(zip("ijk", v["spacing"]))
     dims = list(v["shape"])
     data = {
@@ -551,13 +760,14 @@ def viewer(a: dict, view: str, key: str, height: int, crosshair: bool = True, li
         "cur": a["cur"], "l3": a["l3"], "crosshair": crosshair, "link": link, "opacity": a["opacity"],
         "colors": colors, "color_sig": hashlib.md5(repr(sorted(colors.items())).encode()).hexdigest()[:8],
         "names": {int(L): d["name"] for L, d in labels.items()},
+        "visible": {int(L): bool(d["visible"]) for L, d in labels.items()} if mask else {}, "checks": checks and bool(mask),
         "meas": [{"slice": m["slice"], "a": list(m["a"]), "b": list(m["b"]), "length_mm": m["length_mm"]}
                  for m in ss.meas if m["view"] == view],
         "pending": ({"slice": ss.pending["slice"], "a": list(ss.pending["a"])}
                     if ss.pending and ss.pending["view"] == view else None),
     }
     _viewer(key=key, data=data, on_cur_change=lambda: _on_cur(key), on_click_change=lambda: _on_click(view, key),
-            on_missing_change=lambda: _on_missing(key))
+            on_missing_change=lambda: _on_missing(key), on_visible_change=lambda: _on_visible(key))
 
 
 def sliders(v: dict) -> None:
@@ -570,14 +780,21 @@ def file_buttons(*, busy: bool, has_ct: bool, dicom: bool) -> None:
            on_action_change=lambda: _on_action("file_buttons"))
 
 
+def window_presets() -> None:
+    _presets(key="window_presets", data={"presets": [list(p) for p in lb.PRESETS], "w": ss.wl["w"], "l": ss.wl["l"]},
+             on_pick_change=lambda: _on_preset("window_presets"))
+
+
 def mesh(a: dict, height: int = 420) -> None:
     v, mask = a["vol"], a["mask"]
-    sig = (mask["id"], tuple((L, d["role"], d["visible"], "L3" in d["name"]) for L, d in a["labels"].items()))
+    # not the 2D visibility: every surface is built and the 3D view has its own checkboxes
+    sig = (mask["id"], v["id"], config.BONE_HU, tuple((L, d["role"], "L3" in d["name"]) for L, d in a["labels"].items()))
     mesh_id = "mesh:" + hashlib.md5(repr(sig).encode()).hexdigest()[:12]
     cache = ss.setdefault("live_meshes", {})
     if mesh_id not in cache:
         with st.spinner("Building 3D surfaces…"):
-            meshes = render.build_meshes(mask["data"], a["labels"], v["spacing"], config.MESH_MAX_VOXELS)
+            meshes = render.build_meshes(mask["data"], a["labels"], v["spacing"], config.MESH_MAX_VOXELS,
+                                        hu=v["hu"], bone_hu=config.BONE_HU)
         cache.clear()
         cache[mesh_id] = [{"name": m["name"], "color": m["color"], "opacity": m["opacity"],
                            "x": np.round(m["x"], 1).tolist(), "y": np.round(m["y"], 1).tolist(), "z": np.round(m["z"], 1).tolist(),

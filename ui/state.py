@@ -20,7 +20,7 @@ import streamlit as st
 
 import config
 from core import analysis as an
-from core import bodycomp
+from core import biomarkers, bodycomp
 from core import labels as lb
 from core import llm_client, nifti, phantom, render, seg_client, signing
 
@@ -34,7 +34,7 @@ VERTEBRA = re.compile(r"vertebrae_(T12|L3|L4)\.nii(\.gz)?$", re.I)
 MODEL_LABELS = {"1": "muscle", "2": "sat", "3": "vat", "4": "muscle_fat"}
 
 DEFAULTS = dict(
-    vol=None, mask=None, labels={}, labels_rev=0, scheme="generic", stats=None, ref="",
+    vol=None, mask=None, labels={}, scheme="generic", stats=None, ref="",
     cur={"i": 0, "j": 0, "k": 0}, wl={"w": 400, "l": 40}, opacity=0.45, tool="Cross",
     meas=[], pending=None, meas_id=1, l3=None,
     status={"text": "", "error": False}, report=None, signature=None, run=None, body=None,
@@ -78,7 +78,6 @@ def open_volume(v: dict, name: str, sample: bool, ct_bytes: bytes | None) -> Non
     for k in ("mask", "stats", "l3", "report", "signature", "run", "body", "pending"):
         ss[k] = None
     ss.labels, ss.meas, ss.mesh = {}, [], {}
-    ss.labels_rev += 1
     ss.editing = ss.confirming = False
     nx, ny, nz = hu.shape
     ss.cur = {"i": nx // 2, "j": ny // 2, "k": nz // 2}
@@ -89,7 +88,6 @@ def apply_mask(data: np.ndarray, name: str, source: str, key: str, names: dict |
     labels = lb.labels_from_names(counts, names) if names else lb.labels_for(counts, key)
     ss.mask = {"data": data, "name": name, "source": source, "counts": counts, "id": uuid.uuid4().hex[:8]}
     ss.labels = labels
-    ss.labels_rev += 1
     ss.scheme = key
     ss.stats = an.volume_stats(ss.vol["hu"], data)
     ss.mesh = {}
@@ -306,13 +304,6 @@ def cb_go_l3() -> None:
 
 
 
-def cb_wl_preset() -> None:
-    name = ss.get("w_preset")
-    hit = next((p for p in lb.PRESETS if p[0] == name), None)
-    if hit:
-        ss.wl = {"w": hit[1], "l": hit[2]}
-
-
 def cb_wl_number() -> None:
     ss.wl = {"w": max(1, int(ss.w_ww or 1)), "l": int(ss.w_wl or 0)}
 
@@ -366,9 +357,9 @@ def cb_generate() -> None:
 def cb_toggle_edit() -> None:
     if not ss.editing and ss.report:
         n = ss.report["narrative"]
-        for f in ("summary", "examination", "muscle", "adipose", "limitations"):
+        for f in llm_client.NARRATIVE_KEYS:
             ss[f"ed_{f}"] = n[f]
-        ss.ed_recommendations = "\n".join(n["recommendations"])
+        ss.ed_lifestyle = "\n".join(n["lifestyle"])
     ss.editing = not ss.editing
 
 
@@ -376,7 +367,7 @@ def cb_edit(field: str) -> None:
     if not ss.report:
         return
     value = ss[f"ed_{field}"]
-    if field == "recommendations":
+    if field == "lifestyle":
         value = [x.strip() for x in value.split("\n") if x.strip()]
     ss.report = {**ss.report, "narrative": {**ss.report["narrative"], field: value}, "edited": True}
 
@@ -384,7 +375,7 @@ def cb_edit(field: str) -> None:
 def cb_sign(payload: dict) -> None:
     ss.sign_error = ""
     try:
-        s = signing.sign(payload, ss.report, ss.get("reader", ""), ss.get("remarks", ""))
+        s = signing.sign(payload, ss.report, ss.get("reader", ""), ss.get("remarks", ""), ss.ref, ss.vol["sample"])
         ss.signature = s
         ss.signed_remarks = ss.get("remarks", "")
         log("SUCCESS", "SIGN", f"signed by {s['reader']}; sha256 {s['sha256'][:16]}…; stored {s['file']}")
@@ -396,6 +387,8 @@ def cb_sign(payload: dict) -> None:
 
 # ---------------------------------------------------------------- segmentation job (runs in a thread)
 def cb_segment() -> None:
+    if ss.job is not None:  # a second click that arrived before the rerun disabled the button
+        return
     v = ss.vol
     if v is None or not v["bytes"]:
         status("Open a CT file first. The sample phantom already has a mask.", error=True)
@@ -493,17 +486,22 @@ def _report() -> None:
     ss.signature = None
 
     def rules(reason: str | None = None) -> dict:
-        return {"source": "rules", "generatedAt": now(), "narrative": an.rule_narrative(payload),
-                "unverifiedNumbers": [], "fallbackReason": reason}
+        derived = biomarkers.derived(payload)
+        return {"source": "rules", "generatedAt": now(), "narrative": an.rule_narrative(payload, derived),
+                "derived": derived, "unverifiedNumbers": [], "fallbackReason": reason}
 
     if llm_client.configured():
-        log("INFO", "REPORT", f"sending {len(key.encode())} bytes of de-identified metrics to {config.LLM_MODEL}")
+        log("INFO", "REPORT", f"sending {len(key.encode())} bytes ({len(payload)} whitelisted biomarkers) to {config.LLM_MODEL}")
         try:
             with st.spinner(f"Waiting for {config.LLM_MODEL}…"):
                 g = llm_client.generate(payload)
             n_bad = len(g["unverifiedNumbers"])
             log("SUCCESS", "REPORT", f"draft received in {g['latencyMs']} ms{' after a retry' if g['attempts'] > 1 else ''}"
                                      f"{f'; {n_bad} unverified numbers' if n_bad else ''}")
+        except biomarkers.PayloadBlocked as e:
+            reason = str(e)
+            g = rules(reason)
+            log("ERROR", "PHI-GATE", f"{reason}; nothing was sent, rule-based draft written instead")
         except Exception as e:  # noqa: BLE001  keep the workflow moving
             reason = str(e)
             g = rules(reason)
@@ -517,15 +515,35 @@ def _report() -> None:
 
 
 # ---------------------------------------------------------------- derived view of the state
+def eight_biomarkers() -> tuple[dict | None, dict | None]:
+    """The eight transmitted biomarkers and the range they cover (shown locally, never sent).
+    T12–L4 from the vertebrae (server run or vertebrae_* files), as in predict_muscle_fat.py; without them the
+    segmented range, computed with the same formulas so the payload has the same eight fields."""
+    v, mask, stats = ss.vol, ss.mask, ss.stats
+    if v is None or mask is None:
+        return None, None
+    m = (ss.body or {}).get("metrics_3d")
+    if m:
+        return biomarkers.from_metrics(m), {"source": "T12–L4", "slices": m["slice_range"]}
+    if not stats or stats["k_min"] < 0:
+        return None, None
+    key = (v["id"], mask["id"])
+    cache = ss.setdefault("bio_cache", {})
+    if key not in cache:
+        cache.clear()
+        cache[key] = bodycomp.compute(v["hu"], mask["data"], v["spacing"], stats["k_min"], None, stats["k_max"])["metrics_3d"]
+    m = cache[key]
+    return biomarkers.from_metrics(m), {"source": "segmented range (T12/L4 not found)", "slices": m["slice_range"]}
+
+
 def analysis() -> dict:
     v, mask, labels, stats = ss.vol, ss.mask, ss.labels, ss.stats
     p = patient()
     ev = None
     if v is not None and mask is not None and ss.l3 is not None:
         ev = an.evaluate(an.role_metrics(an.slice_stats(v["hu"], mask["data"], ss.l3), labels, v["spacing"]), p)
-    payload = an.build_payload(ref=ss.ref, shape=v["shape"], spacing=v["spacing"], mask=mask, labels=labels,
-                               scheme=ss.scheme, stats=stats, patient=p, l3=ss.l3, sample=v["sample"], ev=ev) if v else None
+    payload, bio_range = eight_biomarkers()
     return {"vol": v, "mask": mask, "labels": labels, "stats": stats, "patient": p, "l3": ss.l3, "cur": ss.cur,
-            "wl": ss.wl, "opacity": ss.opacity, "ev": ev, "payload": payload,
+            "wl": ss.wl, "opacity": ss.opacity, "ev": ev, "payload": payload, "bio_range": bio_range,
             "payload_key": json.dumps(payload, sort_keys=True, ensure_ascii=False) if payload else "",
             "report": ss.report, "signature": ss.signature, "run": ss.run, "body": ss.body}

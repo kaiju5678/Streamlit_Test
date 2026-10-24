@@ -51,6 +51,8 @@ HERE = Path(__file__).resolve().parent
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
+if os.name == "nt":
+    os.system("")  # turn on ANSI colours in cmd.exe for the access log
 
 MODEL = os.getenv("MODEL", "mazurowski").strip().lower()          # mazurowski | demo
 SEG_REPO = Path(os.getenv("SEG_REPO", HERE.parent.parent / "CT-Muscle-and-Fat-Segmentation")).resolve()
@@ -61,6 +63,7 @@ TOTALSEG_FAST = os.getenv("TOTALSEG_FAST", "0") == "1"
 API_KEY = os.getenv("API_KEY", "")
 HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8000"))
+ACCESS_LOG = os.getenv("ACCESS_LOG", "1") == "1"                   # one line per request: status, method, path, time
 TIMEOUT_S = int(os.getenv("SEG_TIMEOUT_S", "3600"))
 MAX_BYTES = 1024**3
 KEEP_RUNS = 50
@@ -69,6 +72,26 @@ LABELS = {1: "muscle", 2: "sat", 3: "vat", 4: "muscle_fat"}        # dataset.jso
 
 app = FastAPI(title="BodyComp segmentation (Mazurowski nnU-Net)")
 GPU_LOCK = threading.Lock()          # one inference at a time on a small GPU
+
+
+def status_text(code: int) -> str:
+    """Status code coloured by class: 2xx green, 3xx cyan, 4xx yellow, 5xx red."""
+    colour = {2: "32", 3: "36", 4: "33"}.get(code // 100, "31")
+    return f"[{colour}m{code}[0m"
+
+
+@app.middleware("http")
+async def access_log(request: Request, call_next):
+    t0 = time.perf_counter()
+    code = 500
+    try:
+        response = await call_next(request)
+        code = response.status_code
+        return response
+    finally:
+        if ACCESS_LOG:
+            ms = (time.perf_counter() - t0) * 1000
+            print(f"{datetime.now():%H:%M:%S}  {status_text(code)}  {request.method:<4} {request.url.path}  {ms:.0f} ms", flush=True)
 
 
 def bin_dir() -> Path:
@@ -591,4 +614,5 @@ if __name__ == "__main__":
         print(f"  vertebrae  : {'TotalSegmentator ' + (totalseg_exe() or 'NOT FOUND') if AUTO_VERTEBRAE else 'off'}")
     print(f"  device     : {SAMPLER.device} ({SAMPLER.kind})")
     print(f"  api key    : {'set' if API_KEY else 'off'}")
+    print(f"  access log : {'on' if ACCESS_LOG else 'off'}")
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning")

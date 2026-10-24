@@ -1,6 +1,8 @@
-"""Draft reports from any OpenAI-compatible chat-completions server (port of ct-scan-test/app/api/report/route.ts).
+"""Draft reports from MedGemma (or any OpenAI-compatible chat-completions server).
 
-Only the bodycomp.metrics/v1 payload is sent: no images, no file names, no identifiers.
+Only the eight whitelisted biomarkers are sent (core/biomarkers.py), and the whitelist check runs right before the
+request: no images, no file names, no identifiers, no patient details. The derived indices in the prompt are computed
+here from those eight values.
 """
 from __future__ import annotations
 
@@ -13,17 +15,30 @@ from datetime import datetime, timezone
 import requests
 
 import config
+from core import biomarkers
+from core.http_log import HOOKS
 from core.analysis import unverified_numbers
 
-SYSTEM = """You draft CT body-composition reports for a radiologist, who will review and sign them.
+SYSTEM = """You are a medical research assistant. You write a structured, research-oriented report on CT body composition
+for a physician, who will review and sign it.
+The data are eight biomarkers measured on an abdominal CT segment, normally vertebrae T12 to L4 (skeletal muscle,
+subcutaneous fat, visceral fat, intramuscular fat), plus indices derived from them. No patient identifiers, age, sex,
+height or weight are available.
+Task: assess the metabolic syndrome risk and the sarcopenia risk suggested by these measurements, and give lifestyle
+guidance.
 Rules:
-- Use only the numbers in the JSON you are given. Never invent, estimate or convert values.
-- If a value is null, say it is not available.
-- A finding is abnormal only if its entry in "references" has flagged=true. Do not apply other cut-offs.
-- Mention every item in "quality_flags" under limitations.
-- Be concise and clinical. No patient identifiers exist in the data; do not make any up.
+- Use only the numbers you are given. Never invent, estimate or convert values. If a value is null, say it is not available.
+- For myosteatosis use the given "myosteatosis_indication" only; do not apply other cut-offs.
+- Without height, sex and reference ranges for volumes, describe risks as "suggested" or "possible", never as a diagnosis.
+- This is decision-support information, not a definitive diagnosis.
 Reply with one JSON object and nothing else:
-{"summary": string, "examination": string, "muscle": string, "adipose": string, "recommendations": string[], "limitations": string}"""
+{"summary": string, "muscle": string, "fat": string, "metabolic": string, "sarcopenia": string,
+ "lifestyle": string[], "limitations": string}
+summary = body composition summary; muscle = muscle characteristics; fat = fat distribution;
+metabolic = potential metabolic implications (metabolic syndrome risk); sarcopenia = sarcopenia-related observations;
+lifestyle = lifestyle considerations, one per item; limitations = limitations of this assessment."""
+
+NARRATIVE_KEYS = ("summary", "muscle", "fat", "metabolic", "sarcopenia", "limitations")
 
 RETRY_NOTE = ("Your previous reply was not a valid JSON object. Reply again with only the JSON object described in the "
               "instructions: no markdown, no code fences, no other text.")
@@ -37,12 +52,28 @@ def configured() -> bool:
     return bool(config.LLM_URL)
 
 
-def _post(body: dict) -> requests.Response:
+def _headers() -> dict:
     headers = {"Content-Type": "application/json"}
     if config.LLM_API_KEY:
         headers["Authorization"] = f"Bearer {config.LLM_API_KEY}"
+    return headers
+
+
+def reachable() -> str | None:
+    """None when the server answers GET /models; otherwise why not (e.g. off the lab network)."""
     try:
-        return requests.post(f"{config.LLM_URL}/chat/completions", json=body, headers=headers, timeout=(10, config.LLM_TIMEOUT_S))
+        r = requests.get(f"{config.LLM_URL}/models", headers=_headers(), timeout=(2, 5))
+    except requests.ConnectTimeout:
+        return "no answer (connection timed out; the server may only be reachable from the lab network)"
+    except requests.RequestException as e:
+        return f"cannot connect ({type(e).__name__})"
+    return None if r.ok else f"HTTP {r.status_code}"
+
+
+def _post(body: dict) -> requests.Response:
+    headers = _headers()
+    try:
+        return requests.post(f"{config.LLM_URL}/chat/completions", hooks=HOOKS, json=body, headers=headers, timeout=(10, config.LLM_TIMEOUT_S))
     except requests.ConnectTimeout as e:
         raise LlmError(f"Cannot reach the language model at {config.LLM_URL} (connection timed out).") from e
     except requests.Timeout as e:
@@ -51,14 +82,19 @@ def _post(body: dict) -> requests.Response:
         raise LlmError(f"Cannot reach the language model ({e}).") from e
 
 
+def user_message(payload: dict, derived: dict) -> str:
+    return ("Body-composition biomarkers:\n" + json.dumps(payload, indent=2, ensure_ascii=False)
+            + "\n\nDerived indices (computed from the eight values above):\n" + json.dumps(derived, indent=2, ensure_ascii=False))
+
+
 def generate(payload: dict) -> dict:
-    """Returns a GeneratedReport dict (source 'llm'). Raises LlmError when no usable draft comes back."""
+    """Returns a GeneratedReport dict (source 'llm'). Raises LlmError when no usable draft comes back, and
+    biomarkers.PayloadBlocked when the payload fails the whitelist check (then nothing is sent)."""
     if not configured():
         raise LlmError("No language model configured. Set LLM_URL in .env.")
-    messages = [
-        {"role": "system", "content": SYSTEM},
-        {"role": "user", "content": f"Body-composition measurements:\n{json.dumps(payload, indent=2, ensure_ascii=False)}"},
-    ]
+    biomarkers.check(payload)                     # nothing but the eight whitelisted numbers may leave the app
+    derived = biomarkers.derived(payload)
+    messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user_message(payload, derived)}]
     prompt_sha = hashlib.sha256(json.dumps(messages, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
     started = time.time()
     state = {"json_mode": True}
@@ -92,13 +128,13 @@ def generate(payload: dict) -> dict:
     if not narrative:
         raise LlmError(f"The model reply was not the expected JSON after {attempts} attempts. Reply started: {raw[:200]}")
 
-    text = "\n".join([narrative["summary"], narrative["examination"], narrative["muscle"], narrative["adipose"],
-                      *narrative["recommendations"], narrative["limitations"]])
+    text = "\n".join([*(narrative[k] for k in NARRATIVE_KEYS), *narrative["lifestyle"]])
     return {
         "source": "llm",
         "generatedAt": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
         "narrative": narrative,
-        "unverifiedNumbers": unverified_numbers(text, payload),
+        "unverifiedNumbers": unverified_numbers(text, {**payload, **derived}),
+        "derived": derived,
         "model": config.LLM_MODEL,
         "temperature": config.LLM_TEMPERATURE,
         "latencyMs": int((time.time() - started) * 1000),
@@ -148,11 +184,7 @@ def parse_narrative(reply: str) -> dict | None:
             return " ".join(map(str, v))
         return str(v)
 
-    recs = o.get("recommendations")
-    n = {
-        "summary": s(o.get("summary")), "examination": s(o.get("examination")),
-        "muscle": s(o.get("muscle")), "adipose": s(o.get("adipose")),
-        "recommendations": [x for x in map(s, recs) if x] if isinstance(recs, list) else ([s(recs)] if recs else []),
-        "limitations": s(o.get("limitations")),
-    }
-    return n if n["summary"] or n["muscle"] or n["adipose"] else None
+    recs = o.get("lifestyle")
+    n = {k: s(o.get(k)) for k in NARRATIVE_KEYS}
+    n["lifestyle"] = [x for x in map(s, recs) if x] if isinstance(recs, list) else ([s(recs)] if recs else [])
+    return n if n["summary"] or n["muscle"] or n["fat"] else None

@@ -7,6 +7,7 @@ from urllib.parse import quote, unquote
 import requests
 
 import config
+from core.http_log import HOOKS
 
 
 def configured() -> bool:
@@ -37,7 +38,7 @@ def health() -> dict | None:
     if not configured():
         return None
     try:
-        r = requests.get(f"{config.INFERENCE_BASE}/health", timeout=2)
+        r = requests.get(f"{config.INFERENCE_BASE}/health", hooks=HOOKS, timeout=2)
         return r.json() if r.ok else None
     except requests.RequestException:
         return None
@@ -47,7 +48,7 @@ def device() -> dict:
     if not configured():
         return {"configured": False}
     try:
-        r = requests.get(f"{config.INFERENCE_BASE}/device", headers=_headers(), timeout=3)
+        r = requests.get(f"{config.INFERENCE_BASE}/device", hooks=HOOKS, headers=_headers(), timeout=3)
         if not r.ok:
             return {"configured": True, "online": False, "error": _error(r)}
         return {"configured": True, "online": True, **r.json()}
@@ -57,7 +58,7 @@ def device() -> dict:
 
 def run_record(run_id: str) -> dict | None:
     try:
-        r = requests.get(f"{config.INFERENCE_BASE}/runs/{run_id}", headers=_headers(), timeout=3)
+        r = requests.get(f"{config.INFERENCE_BASE}/runs/{run_id}", hooks=HOOKS, headers=_headers(), timeout=3)
         return r.json() if r.ok else None
     except requests.RequestException:
         return None
@@ -65,7 +66,7 @@ def run_record(run_id: str) -> dict | None:
 
 def segment(ct_bytes: bytes, filename: str, run_id: str) -> dict:
     """Send CT bytes, receive the mask and its label names. Blocking (call from a thread)."""
-    r = requests.post(f"{config.INFERENCE_BASE}/segment", data=ct_bytes, timeout=config.INFERENCE_TIMEOUT_S,
+    r = requests.post(f"{config.INFERENCE_BASE}/segment", hooks=HOOKS, data=ct_bytes, timeout=config.INFERENCE_TIMEOUT_S,
                       headers=_headers({"Content-Type": "application/octet-stream", "X-Filename": quote(filename),
                                         "X-Run-Id": run_id}))
     if not r.ok:
@@ -80,7 +81,7 @@ def segment(ct_bytes: bytes, filename: str, run_id: str) -> dict:
 
 
 def convert_dicom(zip_bytes: bytes) -> tuple[bytes, list, str]:
-    r = requests.post(f"{config.INFERENCE_BASE}/convert", data=zip_bytes, timeout=900,
+    r = requests.post(f"{config.INFERENCE_BASE}/convert", hooks=HOOKS, data=zip_bytes, timeout=900,
                       headers=_headers({"Content-Type": "application/zip"}))
     if not r.ok:
         raise RuntimeError(f"DICOM conversion failed: {_error(r)}")

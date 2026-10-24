@@ -9,7 +9,7 @@ nnU-Net from `CT-Muscle-and-Fat-Segmentation` as the segmentation model.
 | **Slice viewer** | Synced axial / coronal / sagittal views with crosshair (click to move), real-time scrolling in every view, zoom, caliper measurements |
 | **Metrics table** | Per-label voxels, volume, mean and SD HU, slice and L3 areas; the repo's own 2D (L3) and 3D (T12–L4) metrics; cross-sectional area by slice (click to navigate); CSV |
 | **AI report** | Draft from an OpenAI-compatible LLM (MedGemma) or rule-based fallback; flags numbers not in the measurements; editable; physician sign-off with Ed25519 signature |
-| **Transmitted JSON** | The exact de-identified payload, LLM request, raw response and signature receipt |
+| **Transmitted JSON** | The exact payload (the eight whitelisted biomarkers), its whitelist check, derived indices, LLM request, raw response and signature receipt |
 | **Run log** | Server pipeline log merged with the session log; level filter; export; wall time, peak memory, throughput; GPU / power profile |
 
 The sidebar has data input buttons (Open CT and Open mask open the file picker directly; a mask that does not
@@ -26,7 +26,7 @@ told the new position only when the movement stops. plotly.js for the 3D model i
 ```
 browser ─► Streamlit app.py (:8501) ─► inference/server.py (:8000) ─► predict_muscle_fat.py (nnU-Net, labels 1–4)
                                 │                                  └► TotalSegmentator T12 / L3 / L4 (L3 → label 50)
-                                ├─► OpenAI-compatible LLM (de-identified numbers only)
+                                ├─► OpenAI-compatible LLM (eight whitelisted numbers only)
                                 └─► DATA_DIR/reports (signed reports, signing key)
 ```
 
@@ -78,7 +78,8 @@ ui/state.py         session state and actions (load, segment, report, sign)
 ui/sidebar.py       sidebar sections
 ui/live.py          real-time slice viewers, sliders, file buttons, 3D model (st.components.v2)
 ui/tabs.py          the six tabs
-core/analysis.py    volumetrics, L3 indices, references, payload, rule narrative, CSV
+core/analysis.py    volumetrics, L3 indices, references, rule narrative, CSV
+core/biomarkers.py  the eight transmitted biomarkers, whitelist check (blocks anything else), derived indices
 core/render.py      MPR slices, Plotly viewers and charts, 3D surfaces
 core/labels.py      label schemes, roles, colours, W/L presets
 core/llm_client.py  OpenAI-compatible report drafting (JSON mode, retry, thinking-tag stripping)

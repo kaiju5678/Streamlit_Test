@@ -56,3 +56,4 @@ CT_SEARCH_DIRS = [p for p in ([SEG_REPO / "demo", SEG_REPO, SEG_REPO / "results"
 
 # ---- UI
 MESH_MAX_VOXELS = int(os.getenv("MESH_MAX_VOXELS", "1500000"))
+BONE_HU = float(os.getenv("BONE_HU", "250"))         # CT threshold for the bone surface of the 3D model
