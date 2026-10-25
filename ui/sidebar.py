@@ -1,6 +1,8 @@
 """Sidebar: data input, segmentation, viewer controls, L3, patient, report endpoint, device status."""
 from __future__ import annotations
 
+import html
+
 import streamlit as st
 
 import config
@@ -77,6 +79,10 @@ def render() -> None:
             note = f"Inference server offline at {config.INFERENCE_BASE}. Start it with python inference/server.py."
         elif not health.get("repo_found", True):
             note = "Server cannot find CT-Muscle-and-Fat-Segmentation (set SEG_REPO)."
+        elif health.get("error"):
+            note = f"Server could not load the model: {html.escape(health['error'][-160:])}"
+        elif health.get("ready") is False:
+            note = "Server is loading the model; a run started now waits for it."
         else:
             model = "Mazurowski nnU-Net" if health.get("model") == "mazurowski" else health["model"]
             note = f"Model: {model}" + (" + TotalSegmentator" if health.get("totalsegmentator") else "")
