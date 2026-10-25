@@ -37,9 +37,9 @@ DEFAULTS = dict(
     vol=None, mask=None, labels={}, scheme="generic", stats=None, ref="",
     cur={"i": 0, "j": 0, "k": 0}, wl={"w": 400, "l": 40}, opacity=0.45, tool="Cross",
     meas=[], pending=None, meas_id=1, l3=None,
-    status={"text": "", "error": False}, report=None, signature=None, run=None, body=None,
+    status={"text": "", "error": False}, report=None, signature=None, run=None, body=None, seg_secs=None,
     weblog=[], job=None, action=None, editing=False, confirming=False, sign_error="",
-    mesh={}, hide_server=False, up_nonce=0, last_click={},
+    mesh={}, hide_server=False, up_nonce=0, last_click={}, tab_default=None, tab_nonce=0,
     p_sex="", p_age=None, p_h=None, p_w=None,
 )
 
@@ -75,7 +75,7 @@ def open_volume(v: dict, name: str, sample: bool, ct_bytes: bytes | None) -> Non
     ss.vol = {"hu": hu, "affine": v["affine"], "spacing": v["spacing"], "shape": hu.shape, "src": v["src"],
               "name": name, "sample": sample, "bytes": ct_bytes, "id": uuid.uuid4().hex[:8]}
     ss.ref = an.case_ref(name)
-    for k in ("mask", "stats", "l3", "report", "signature", "run", "body", "pending"):
+    for k in ("mask", "stats", "l3", "report", "signature", "run", "body", "pending", "seg_secs"):
         ss[k] = None
     ss.labels, ss.meas, ss.mesh = {}, [], {}
     ss.editing = ss.confirming = False
@@ -349,9 +349,14 @@ def cb_pick_slice(key: str) -> None:
         ss.cur = {**ss.cur, "k": int(pts[0].get("x", ss.cur["k"]))}
 
 
+def open_tab(name: str) -> None:
+    """Select a tab from a callback; the tabs switch in the browser otherwise (app.py)."""
+    ss.tab_default, ss.tab_nonce = name, ss.tab_nonce + 1
+
+
 def cb_generate() -> None:
     ss.action = ("report",)
-    ss["tab"] = "AI report"
+    open_tab("AI report")
 
 
 def cb_toggle_edit() -> None:
@@ -422,7 +427,7 @@ def finish_job() -> None:
         log("ERROR", "INFERENCE", box["err"])
         return
     res = box["res"]
-    secs = time.time() - job["t0"]
+    secs = ss.seg_secs = time.time() - job["t0"]
     try:
         ss.body = res.get("body")
         stem = NII.sub("", ss.vol["name"])
@@ -448,7 +453,7 @@ def run_action(action: tuple) -> None:
 def _dicom(files: list) -> None:
     t0 = time.time()
     try:
-        with st.spinner("Converting DICOM on the inference server…"):
+        with st.spinner("Converting DICOM on the inference server…", show_time=True):
             if len(files) == 1 and files[0].name.lower().endswith(".zip"):
                 body, label = files[0].getvalue(), re.sub(r"\.zip$", "", files[0].name, flags=re.I)
             else:
@@ -493,7 +498,7 @@ def _report() -> None:
     if llm_client.configured():
         log("INFO", "REPORT", f"sending {len(key.encode())} bytes ({len(payload)} whitelisted biomarkers) to {config.LLM_MODEL}")
         try:
-            with st.spinner(f"Waiting for {config.LLM_MODEL}…"):
+            with st.spinner(f"Generating report with {config.LLM_MODEL}…", show_time=True):
                 g = llm_client.generate(payload)
             n_bad = len(g["unverifiedNumbers"])
             log("SUCCESS", "REPORT", f"draft received in {g['latencyMs']} ms{' after a retry' if g['attempts'] > 1 else ''}"

@@ -9,3 +9,6 @@ venv/
 data/reports/
 data/signing-key.pem
 command.txt
+.claude
+CLAUDE.md
+inference/bench_out/

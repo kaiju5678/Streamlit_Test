@@ -112,15 +112,19 @@ def line_chart(series: list[dict], unit: str, x_label: str, markers: list[dict])
                                    customdata=np.arange(n), hovertemplate=f"{s['name']} %{{y:.1f}} {unit}<extra></extra>"))
     for m in markers:
         fig.add_vline(x=m["x"], line=dict(color=m.get("color", MUTED), dash="dot", width=1),
-                      annotation=dict(text=m["label"], font=dict(color=m.get("color", MUTED), size=11)), annotation_position="top")
+                      annotation=dict(text=m["label"], font=dict(color=m.get("color", MUTED), size=11)),
+                      annotation_position=m.get("pos", "top"))
     # No zoom or pan: fixedrange is what locks it (st.plotly_chart turns a falsy dragmode into "pan"); a click on a point
     # still selects it and moves the "current" slice
-    fig.update_layout(legend=dict(orientation="h", y=1.12, x=0), hovermode="x unified", clickmode="event+select",
+    # Legend sits above the slice-marker labels (L3, current) so the two rows never overlap
+    fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.1, x=0), hovermode="x unified", clickmode="event+select",
                       xaxis=dict(title=x_label, gridcolor=GRID, zeroline=False, hoverformat="d", showspikes=True, fixedrange=True,
                                  spikemode="across", spikesnap="cursor", spikecolor=MUTED, spikethickness=1, spikedash="dot"),
                       yaxis=dict(title=unit, gridcolor=GRID, zeroline=False, fixedrange=True), dragmode=False)
-    fig.update_layout(margin=dict(l=8, r=8, t=30, b=8))
-    return _base(fig, 320)
+    fig.update_xaxes(automargin=True, title_standoff=8)
+    fig.update_yaxes(automargin=True, title_standoff=8)
+    # Margins after _base (it sets 8 px all round): room for the y tick labels, the x ticks + title and the legend row
+    return _base(fig, 360).update_layout(margin=dict(l=64, r=16, t=56, b=52))
 
 
 def area_chart(t: list, v: list, unit: str, color: str, vmax: float | None = None) -> go.Figure:

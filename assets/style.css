@@ -5,33 +5,44 @@
   --ok: #5ccf8a; --warn: #f0b44c; --bad: #ef6b6b; --warn-bg: rgba(240, 180, 76, 0.1); --term-bg: #05080c;
   --mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
-.block-container { padding-top: 3.2rem; padding-bottom: 1rem; max-width: 1680px; }
+.block-container { padding-top: 0; padding-bottom: 1rem; max-width: 1680px; }
 code, .mono { font-family: var(--mono); }
 h3, h4 { margin: 0; }
 
 /* primary buttons: amber with dark ink, as in the reference */
 [data-testid="stBaseButton-primary"]:not(:disabled) { color: var(--accent-ink) !important; font-weight: 600; }
 
+/* No Streamlit top bar (Deploy, main menu, running/Stop indicator) so the page starts at the top edge;
+   segmentation progress shows in the header chips instead */
+[data-testid="stHeader"] { display: none !important; }
+
 /* ---------- header ---------- */
 .top { display: flex; align-items: center; gap: 16px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 6px;
-       background: var(--panel); flex-wrap: wrap; margin-bottom: 4px; }
-.brand { display: flex; align-items: baseline; gap: 8px; }
+       background: var(--panel); flex-wrap: nowrap; margin-bottom: 4px; }
+.brand { display: flex; align-items: baseline; gap: 8px; flex-shrink: 0; white-space: nowrap; }
 .brand b { font-weight: 600; letter-spacing: 0.02em; color: var(--fg); font-size: 15px; }
 .brand span { color: var(--muted); font-size: 12px; }
-.case { font: 12px var(--mono); color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; min-width: 0; align-items: center; }
-.case strong { color: var(--fg); font-weight: 500; overflow-wrap: anywhere; }
-.chips-top { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+/* One row: the case details take the free width; when it runs out each part is cut with "…" (file name on hover),
+   so the chips never drop to a second line */
+.case { font: 12px var(--mono); color: var(--muted); display: flex; gap: 12px; flex: 1 1 auto; min-width: 0; align-items: center; }
+.case > * { white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.case strong { color: var(--fg); font-weight: 500; flex-shrink: 0.5; min-width: 12ch; }
+.chips-top { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
 .chip-s { display: grid; font: 11px var(--mono); padding: 2px 8px; border: 1px solid var(--line-2); border-radius: 4px; color: var(--muted); line-height: 1.3; }
 .chip-s em { font-style: normal; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
 .chip-s.on { border-color: var(--ok); color: var(--ok); }
 .chip-s.mid { border-color: var(--warn); color: var(--warn); }
 .tag { font: 11px var(--mono); padding: 2px 7px; border-radius: 3px; border: 1px solid var(--line-2); color: var(--muted); white-space: nowrap; }
-.tag.sample { border-color: var(--warn); color: var(--warn); }
 
 /* ---------- sidebar ---------- */
 .st-key-bc_uploads { display: none !important; }   /* opened by the file buttons (ui/live.py) */
 section[data-testid="stSidebar"] { border-right: 1px solid var(--line); min-width: 340px; }
-section[data-testid="stSidebar"] .brand { margin: -6px 0 6px; }
+/* Fixed sidebar: no drag-to-resize, no collapse/expand arrows (always open; see initial_sidebar_state in app.py) */
+section[data-testid="stSidebar"] { width: 340px !important; max-width: 340px !important; transform: none !important; }
+[data-testid="stSidebarResizeHandle"], [data-testid="stSidebarCollapseButton"],
+[data-testid="stExpandSidebarButton"], [data-testid="stSidebarHeader"] { display: none !important; }
+[data-testid="stSidebarUserContent"] { padding-top: 1rem !important; }
+section[data-testid="stSidebar"] .brand { margin: 0 0 6px; }
 .sec { font: 600 11px var(--mono); letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted);
        border-top: 1px solid var(--line); padding-top: 12px; margin: 10px 0 2px; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 4px 0; font-size: 12px; }
@@ -58,6 +69,13 @@ div[data-testid="stVerticalBlockBorderWrapper"], div[data-testid="stVerticalBloc
 .fh { font-size: 14px; font-weight: 600; margin-bottom: 4px; color: var(--fg); }
 h4.sub { font-size: 12px; color: var(--muted); margin: 10px 0 4px; font-weight: 600; }
 .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+/* Boxes in one row of an eqrow container (ui/tabs.py) stretch to the height of the taller one */
+[class*="st-key-eqrow"] [data-testid="stColumn"] > [data-testid="stVerticalBlock"],
+[class*="st-key-eqrow"] [data-testid="stColumn"] > [data-testid="stVerticalBlock"] > [data-testid="stLayoutWrapper"],
+[class*="st-key-eqrow"] [data-testid="stColumn"] > [data-testid="stVerticalBlock"] > [data-testid="stLayoutWrapper"] > [data-testid="stVerticalBlock"] {
+  height: 100%; }
+.mesh-empty { display: flex; align-items: center; justify-content: center; background: #000; border-radius: 4px;
+              color: var(--muted); font-size: 13px; }
 .disc { color: var(--dim); font-size: 11.5px; margin-top: 8px; }
 .banner { border: 1px solid var(--line-2); background: var(--panel-2); border-radius: 6px; padding: 8px 12px; font-size: 12.5px; color: var(--fg); margin: 6px 0; }
 .banner.warn { border-color: var(--warn); background: var(--warn-bg); }

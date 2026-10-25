@@ -484,8 +484,7 @@ export default function (component) {
 
 # ================================================================= 3D model
 MESH_CSS = """
-.bcm-stage { position: relative; border-radius: 6px; overflow: hidden;
-             background: radial-gradient(ellipse at 50% 40%, #1b2638 0%, #0b1018 75%); }
+.bcm-stage { position: relative; border-radius: 4px; overflow: hidden; background: #000; }  /* black, as the 2D views */
 .bcm-reset { position: absolute; right: 8px; top: 8px; z-index: 5; padding: 4px 10px; border-radius: 4px; cursor: pointer;
              font: 12px 'IBM Plex Sans', 'Segoe UI', sans-serif; color: #d9e1ea; background: rgba(17,23,31,0.85);
              border: 1px solid #2a3646; }

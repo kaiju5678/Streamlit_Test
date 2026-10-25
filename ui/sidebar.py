@@ -18,6 +18,12 @@ def inference_health():
     return seg_client.health()
 
 
+@st.cache_data(ttl=8, show_spinner=False)
+def device_status() -> dict:
+    """Cached so a rerun (a click, a slider) does not wait on the server; the panel below refreshes every 10 s anyway."""
+    return seg_client.device()
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def _llm_reachable(url: str) -> str | None:
     """Checked once a minute (url is the cache key): off the lab network every check waits for the 2 s timeout."""
@@ -133,7 +139,7 @@ def render() -> None:
 
 @st.fragment(run_every=10)
 def device_panel() -> None:
-    d = seg_client.device()
+    d = device_status()
     if not d.get("configured"):
         st.markdown("<p class='note'>No inference server configured.</p>", unsafe_allow_html=True)
         return

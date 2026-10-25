@@ -85,6 +85,10 @@ def indices(a: dict) -> list[dict]:
 
 
 # ================================================================= Overview
+OV_VIEW_H = 340  # px, image area of the Overview axial view (the 3D stage beside it follows)
+VIEW_H = 300     # px, image area of each Slice viewer view
+
+
 def overview(a: dict) -> None:
     v, mask, labels, stats, ev = a["vol"], a["mask"], a["labels"], a["stats"], a["ev"]
     rv = an.role_volumes(stats, labels, v["spacing"]) if stats else None
@@ -106,18 +110,20 @@ def overview(a: dict) -> None:
        f"<span class='s'>{f'{f1(adipose / tissue * 100)}% of segmented tissue' if tissue else 'VAT + SAT + IMAT'}</span></div>"
        "</section>")
 
-    c1, c2 = st.columns(2, gap="medium")
+    # Each row sits in an "eqrow" container: assets/style.css stretches both boxes of the row to the same height
+    c1, c2 = st.container(key="eqrow_ov_view").columns(2, gap="medium")
     with c1.container(border=True):
         panel_head("Axial slice with segmentation", "Wheel or slider to change slice · click to move the crosshair")
-        viewport(a, "axial", "ov_axial", 430, checks=True)
+        viewport(a, "axial", "ov_axial", OV_VIEW_H, checks=True)
     with c2.container(border=True):
         panel_head("3D model", "Surface of each label from the segmentation mask")
+        # the 2D box also has a slider row under its image, so the 3D stage is that much taller to line up
         if mask is None:
-            md("<p class='empty'>No segmentation loaded.</p>")
+            md(f"<div class='mesh-empty' style='height:{OV_VIEW_H + 30}px'>No segmentation loaded.</div>")
         else:
-            live.mesh(a)
+            live.mesh(a, OV_VIEW_H + 30)
 
-    c1, c2 = st.columns(2, gap="medium")
+    c1, c2 = st.container(key="eqrow_ov_info").columns(2, gap="medium")
     rep = a["report"]
     with c1.container(border=True):
         if rep:
@@ -173,10 +179,14 @@ def csv_text(a: dict) -> str:
 
 # ================================================================= Slice viewer
 def viewer(a: dict) -> None:
-    c1, c2 = st.columns(2, gap="small")
-    for col, view in ((c1, "axial"), (c2, "coronal"), (c1, "sagittal")):
+    # two eqrow rows (axial | coronal, sagittal | study) so the boxes side by side are the same height
+    c1, c2 = st.container(key="eqrow_v_top").columns(2, gap="small")
+    for col, view in ((c1, "axial"), (c2, "coronal")):
         with col.container(border=True):
-            viewport(a, view, f"v_{view}", 360, checks=view == "axial")
+            viewport(a, view, f"v_{view}", VIEW_H, checks=view == "axial")
+    c1, c2 = st.container(key="eqrow_v_bottom").columns(2, gap="small")
+    with c1.container(border=True):
+        viewport(a, "sagittal", "v_sagittal", VIEW_H)
     with c2.container(border=True):
         info_panel(a)
 
@@ -186,7 +196,7 @@ def info_panel(a: dict) -> None:
     hu = int(v["hu"][cur["i"], cur["j"], cur["k"]])
     L = int(mask["data"][cur["i"], cur["j"], cur["k"]]) if mask else 0
     sx, sy, sz = v["spacing"]
-    panel_head("Study", "Synthetic phantom · not patient data" if v["sample"] else h(v["name"]))
+    panel_head("Study", h(v["name"]))
     rows = [("Cursor (i, j, k)", f"{cur['i']}, {cur['j']}, {cur['k']}"),
             ("Position", f"{cur['i'] * sx:.1f}, {cur['j'] * sy:.1f}, {cur['k'] * sz:.1f} mm"),
             ("HU at cursor", f"{hu}"), ("Label at cursor", f"{L} · {h(labels[L]['name'])}" if L in labels else "none"),
@@ -262,7 +272,9 @@ def metrics(a: dict) -> None:
                   for n, r in (("Muscle", "muscle"), ("Visceral fat", "vat"), ("Subcutaneous fat", "sat"), ("Intermuscular fat", "imat"))]
         series = [s for s in series if s["values"].any()]
         if series:
-            marks = ([{"x": l3, "label": "L3", "color": "#7ee08a"}] if l3 is not None else []) + [{"x": cur["k"], "label": "current"}]
+            # Labels on opposite sides of their lines so "L3" and "current" stay readable when the slices are close
+            marks = (([{"x": l3, "label": "L3", "color": "#7ee08a", "pos": "top left"}] if l3 is not None else [])
+                     + [{"x": cur["k"], "label": "current", "pos": "top right"}])
             st.plotly_chart(render.line_chart(series, "cm²", "Axial slice", marks), key="mt_profile",
                             on_select=lambda: S.cb_pick_slice("mt_profile"), selection_mode="points",
                             config={"displayModeBar": False, "scrollZoom": False, "doubleClick": False}, theme=None)
