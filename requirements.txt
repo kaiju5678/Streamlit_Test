@@ -1,4 +1,4 @@
-# Frontend (Streamlit). The segmentation server has its own: inference/requirements.txt
+# Frontend (Streamlit). The segmentation server has its own: server_segment/requirements.txt
 streamlit>=1.50
 numpy
 pandas

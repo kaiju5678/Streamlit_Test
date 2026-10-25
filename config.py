@@ -31,7 +31,7 @@ def _path(name: str, default: str = "") -> Path | None:
     return (p if p.is_absolute() else BASE_DIR / p).resolve()
 
 
-# ---- Segmentation server (inference/server.py). Empty disables "Run segmentation".
+# ---- Segmentation server (server_segment/server.py). Empty disables "Run segmentation".
 INFERENCE_URL = os.getenv("INFERENCE_URL", "http://127.0.0.1:8000/segment").strip()
 INFERENCE_BASE = INFERENCE_URL.rstrip("/").removesuffix("/segment") if INFERENCE_URL else ""
 INFERENCE_API_KEY = os.getenv("INFERENCE_API_KEY", "")

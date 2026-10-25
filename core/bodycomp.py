@@ -1,6 +1,6 @@
 """Body-composition metrics with the formulas of predict_muscle_fat.py (CT-Muscle-and-Fat-Segmentation).
 
-Same calculation as inference/server.py, for masks opened from a results folder. Arrays are RAS-canonical
+Same calculation as server_segment/server.py, for masks opened from a results folder. Arrays are RAS-canonical
 (axis 2 = axial slice); labels 1 muscle · 2 SAT · 3 VAT · 4 intermuscular fat.
 """
 from __future__ import annotations

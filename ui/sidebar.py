@@ -7,7 +7,6 @@ import streamlit as st
 
 import config
 from core import analysis as an
-from core import labels as lb
 from core import llm_client, seg_client
 from ui import live
 from ui import state as S
@@ -41,7 +40,7 @@ def kv(rows: list[tuple[str, str]]) -> None:
 
 
 def render() -> None:
-    v, mask = ss.vol, ss.mask
+    v = ss.vol
     health = inference_health()
     ready = health is not None
     busy = ss.job is not None
@@ -76,7 +75,7 @@ def render() -> None:
         if not seg_client.configured():
             note = "No inference server configured (INFERENCE_URL)."
         elif health is None:
-            note = f"Inference server offline at {config.INFERENCE_BASE}. Start it with python inference/server.py."
+            note = f"Inference server offline at {config.INFERENCE_BASE}. Start it with python server_segment/server.py."
         elif not health.get("repo_found", True):
             note = "Server cannot find CT-Muscle-and-Fat-Segmentation (set SEG_REPO)."
         elif health.get("error"):
@@ -86,12 +85,7 @@ def render() -> None:
         else:
             model = "Mazurowski nnU-Net" if health.get("model") == "mazurowski" else health["model"]
             note = f"Model: {model}" + (" + TotalSegmentator" if health.get("totalsegmentator") else "")
-        st.markdown(f"<p class='note'>{note}</p>", unsafe_allow_html=True)
-        if mask:
-            # names and roles come from the mask when it is loaded; show / hide is the checkbox row under the 2D view
-            st.markdown("<div class='legend side'>" + "".join(
-                f"<span><i style='background:{lb.rgb(d['color'])}'></i>{d['name']}</span>" for d in ss.labels.values()) + "</div>",
-                unsafe_allow_html=True)
+        st.markdown(f"<div class='note model'>{note}</div>", unsafe_allow_html=True)
 
         # ---- 3 · Viewer controls
         sec("3 · Viewer controls")

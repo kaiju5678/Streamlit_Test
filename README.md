@@ -24,7 +24,7 @@ told the new position only when the movement stops. plotly.js for the 3D model i
 `static/` and served by Streamlit (works offline).
 
 ```
-browser ─► Streamlit app.py (:8501) ─► inference/server.py (:8000) ─► Mazurowski nnU-Net, resident on the GPU (labels 1–4)
+browser ─► Streamlit app.py (:8501) ─► server_segment/server.py (:8000) ─► Mazurowski nnU-Net, resident on the GPU (labels 1–4)
                                 │                                  └► TotalSegmentator T12 / L3 / L4 (L3 → label 50)
                                 ├─► OpenAI-compatible LLM (eight whitelisted numbers only)
                                 └─► DATA_DIR/reports (signed reports, signing key)
@@ -42,7 +42,7 @@ cd ct-body-composition
 Terminal 1, segmentation server:
 
 ```cmd
-cd inference
+cd server_segment
 python server.py
 ```
 
@@ -56,10 +56,10 @@ Settings are in `.env` (copy of `.env.example`, same names as ct-scan-test). The
 so every tab works without patient data. To try the model, click **Open CT**, choose
 `CT-Muscle-and-Fat-Segmentation/demo/example.nii.gz`, then **Run segmentation** (≈70 s on a 4 GB RTX 3050 laptop GPU).
 
-Install (once): `pip install -r requirements.txt -r inference/requirements.txt` plus the repo's
+Install (once): `pip install -r requirements.txt -r server_segment/requirements.txt` plus the repo's
 `CT-Muscle-and-Fat-Segmentation/requirements.txt` (torch CUDA, nnunetv2, TotalSegmentator).
 
-## Segmentation server (`inference/server.py`)
+## Segmentation server (`server_segment/server.py`)
 
 | Env | Default | |
 |---|---|---|
@@ -121,10 +121,10 @@ core/render.py      MPR slices, Plotly viewers and charts, 3D surfaces
 core/labels.py      label schemes, roles, colours, W/L presets
 core/llm_client.py  OpenAI-compatible report drafting (JSON mode, retry, thinking-tag stripping)
 core/signing.py     Ed25519 sign-off
-core/seg_client.py  client for inference/server.py
-inference/server.py segmentation server: routes, GPU job queue
-inference/engine.py resident nnU-Net + TotalSegmentator, metrics via core/bodycomp.py
-inference/monitor.py  GPU/CPU telemetry ring buffer, run records
-inference/dicom_zip.py  DICOM .zip -> NIfTI
-inference/benchmark.py  TTA on/off x AMP-FP16/FP32 speed and agreement
+core/seg_client.py  client for server_segment/server.py
+server_segment/server.py segmentation server: routes, GPU job queue
+server_segment/engine.py resident nnU-Net + TotalSegmentator, metrics via core/bodycomp.py
+server_segment/monitor.py  GPU/CPU telemetry ring buffer, run records
+server_segment/dicom_zip.py  DICOM .zip -> NIfTI
+server_segment/benchmark.py  TTA on/off x AMP-FP16/FP32 speed and agreement
 ```

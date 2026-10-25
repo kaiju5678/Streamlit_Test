@@ -1,4 +1,4 @@
-"""Client for inference/server.py."""
+"""Client for server_segment/server.py."""
 from __future__ import annotations
 
 import json
