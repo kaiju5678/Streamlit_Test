@@ -97,18 +97,28 @@ def overview(a: dict) -> None:
     extent = round((stats["k_max"] - stats["k_min"] + 1) * v["spacing"][2], 1) if stats and stats["k_min"] >= 0 else None
 
     vs_s = f"L3 VAT/SAT ratio {ev['vat_sat']:.2f}" if ev and ev["vat_sat"] is not None else "VAT / SAT ratio at L3 –"
-    hu_s = ("set L3 to compute" if not ev else
-            pill(ev["myosteatosis"], f"below {ev['hu_cut']} HU", f"≥ {ev['hu_cut']} HU") if ev["hu_cut"] else "needs height and weight")
+    hu_s = ("set the L3 level to compute" if not ev else
+            pill(ev["myosteatosis"], f"below {ev['hu_cut']} HU", f"≥ {ev['hu_cut']} HU") if ev["hu_cut"] else "add height and weight for a cut-off")
+    # Only a finding colours a card (red top edge); a missing reference leaves it neutral
+    flag = lambda k: " bad" if ev and ev.get(k) else ""  # noqa: E731
     md("<section class='kpis'>"
        f"<div class='kpi'><span class='k'>Muscle volume</span><span class='v'>{f0(rv['muscle']['cm3'] if rv else None)}<small>cm³</small></span>"
        f"<span class='s'>{f'over {extent} mm segmented range' if extent else 'segmented range'}</span></div>"
-       f"<div class='kpi'><span class='k'>Muscle attenuation · L3</span><span class='v'>{f1(ev['muscle_hu'] if ev else None)}<small>HU</small></span>"
+       f"<div class='kpi{flag('myosteatosis')}'><span class='k'>Muscle attenuation · L3</span><span class='v'>{f1(ev['muscle_hu'] if ev else None)}<small>HU</small></span>"
        f"<span class='s'>{hu_s}</span></div>"
-       f"<div class='kpi'><span class='k'>Visceral fat volume</span><span class='v'>{f0(rv['vat']['cm3'] if rv else None)}<small>cm³</small></span>"
+       f"<div class='kpi{flag('visceral_obesity')}'><span class='k'>Visceral fat volume</span><span class='v'>{f0(rv['vat']['cm3'] if rv else None)}<small>cm³</small></span>"
        f"<span class='s'>{vs_s}</span></div>"
        f"<div class='kpi'><span class='k'>Total adipose</span><span class='v'>{f0(adipose)}<small>cm³</small></span>"
        f"<span class='s'>{f'{f1(adipose / tissue * 100)}% of segmented tissue' if tissue else 'VAT + SAT + IMAT'}</span></div>"
        "</section>")
+    pl = a["payload"]
+    if pl:
+        cm3 = lambda k: f0(pl[k] / 1000) if pl.get(k) is not None else "–"  # noqa: E731
+        md("<p class='more'><span>Subcutaneous fat <b>" + cm3("sfat_volume_mm3") + " cm³</b></span>"
+           "<span>Intramuscular fat <b>" + cm3("mfat_volume_mm3") + " cm³</b></span>"
+           "<span>Body volume <b>" + cm3("body_volume_mm3") + " cm³</b></span>"
+           "<span>Segment height <b>" + f1(pl.get("body_height_mm")) + " mm</b></span>"
+           f"<span class='src'>the eight report biomarkers, over {h((a['bio_range'] or {}).get('source', 'the segmented range'))}</span></p>")
 
     # Each row sits in an "eqrow" container: assets/style.css stretches both boxes of the row to the same height
     c1, c2 = st.container(key="eqrow_ov_view").columns(2, gap="medium")
@@ -149,7 +159,7 @@ def overview(a: dict) -> None:
         if rv and tissue:
             parts = role_parts(rv)
             d1, d2 = st.columns([2, 3], vertical_alignment="center")
-            d1.plotly_chart(render.donut(parts, f0(tissue), "cm³ total"), key="ov_donut", config={"displayModeBar": False}, theme=None)
+            d1.plotly_chart(render.donut(parts, f0(tissue), "cm³ total", ss.dark), key="ov_donut", config={"displayModeBar": False}, theme=None)
             d2.markdown("<ul class='comp-list'>" + "".join(
                 f"<li><span><i style='background:{p['color']}'></i>{p['name']}</span><b>{f0(p['value'])} cm³</b>"
                 f"<em>{f1(p['value'] / tissue * 100)}%</em><span class='comp-bar'><span style='width:{p['value'] / tissue * 100:.1f}%;"
@@ -271,9 +281,9 @@ def metrics(a: dict) -> None:
         series = [s for s in series if s["values"].any()]
         if series:
             # Labels on opposite sides of their lines so "L3" and "current" stay readable when the slices are close
-            marks = (([{"x": l3, "label": "L3", "color": "#7ee08a", "pos": "top left"}] if l3 is not None else [])
+            marks = (([{"x": l3, "label": "L3", "color": "#4ade80" if ss.dark else "#15803d", "pos": "top left"}] if l3 is not None else [])
                      + [{"x": cur["k"], "label": "current", "pos": "top right"}])
-            st.plotly_chart(render.line_chart(series, "cm²", "Axial slice", marks), key="mt_profile",
+            st.plotly_chart(render.line_chart(series, "cm²", "Axial slice", marks, ss.dark), key="mt_profile",
                             on_select=lambda: S.cb_pick_slice("mt_profile"), selection_mode="points",
                             config={"displayModeBar": False, "scrollZoom": False, "doubleClick": False}, theme=None)
             with st.expander("Show as table"):
@@ -610,11 +620,11 @@ def runlog(a: dict) -> None:
             mem_total = next((s["mem_total_mb"] for s in samples if s.get("mem_total_mb")), None)
             c1, c2, c3 = st.columns(3)
             c1.markdown("**Memory used (MB)**")
-            c1.plotly_chart(render.area_chart(t, [s.get("mem_used_mb") for s in samples], "MB", ROLE_CSS["vat"], mem_total),
+            c1.plotly_chart(render.area_chart(t, [s.get("mem_used_mb") for s in samples], "MB", ROLE_CSS["vat"], mem_total, ss.dark),
                             key="rl_mem", config={"displayModeBar": False}, theme=None)
             c2.markdown(f"**{'GPU' if has_gpu else 'CPU'} utilisation (%)**")
-            c2.plotly_chart(render.area_chart(t, [s.get("gpu_util" if has_gpu else "cpu_util") for s in samples], "%", ROLE_CSS["muscle"], 100),
+            c2.plotly_chart(render.area_chart(t, [s.get("gpu_util" if has_gpu else "cpu_util") for s in samples], "%", ROLE_CSS["muscle"], 100, ss.dark),
                             key="rl_util", config={"displayModeBar": False}, theme=None)
             c3.markdown("**Power (W)**")
-            c3.plotly_chart(render.area_chart(t, [s.get("power_w") for s in samples], "W", ROLE_CSS["imat"]),
+            c3.plotly_chart(render.area_chart(t, [s.get("power_w") for s in samples], "W", ROLE_CSS["imat"], dark=ss.dark),
                             key="rl_pow", config={"displayModeBar": False}, theme=None)

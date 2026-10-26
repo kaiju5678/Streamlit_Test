@@ -9,9 +9,11 @@ address = "localhost"
 gatherUsageStats = false      # no telemetry
 
 [theme]
-base = "dark"
-primaryColor = "#f0b44c"
-backgroundColor = "#0a0e13"
-secondaryBackgroundColor = "#11171f"
-textColor = "#d9e1ea"
+base = "light"
+primaryColor = "#1d4ed8"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f6f7f9"
+borderColor = "#e5e7eb"
+baseRadius = "8px"
+textColor = "#111827"
 font = "sans serif"

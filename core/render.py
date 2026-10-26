@@ -16,10 +16,12 @@ from PIL import Image
 
 from core.labels import ROLE_COLOR, rgb
 
-INK = "#dbe4f0"
-MUTED = "#8a9ab0"
-GRID = "rgba(138,154,176,0.18)"
-FONT = dict(color=INK, family="IBM Plex Sans, Segoe UI, sans-serif", size=12)
+# Chart colours per theme, matching the panels in assets/style.css (light) and assets/dark.css (--fg / --dim / --line)
+PALETTE = {
+    False: dict(ink="#111827", muted="#6b7280", grid="rgba(17,24,39,0.08)", panel="#ffffff", line="#d1d5db"),
+    True: dict(ink="#e5e7eb", muted="#9ca3af", grid="rgba(229,231,235,0.10)", panel="#161b22", line="#374151"),
+}
+FONT_FAMILY = "Inter, Segoe UI, system-ui, sans-serif"
 
 
 def window(hu: np.ndarray, w: float, l: float) -> np.ndarray:
@@ -85,24 +87,27 @@ def measure_mm(view: str, spacing, a, b) -> float:
 
 
 # ---------------------------------------------------------------- charts
-def _base(fig: go.Figure, height: int) -> go.Figure:
-    # Explicit hover box: with a transparent paper Plotly falls back to a light box that the light text can't be read on
+def _base(fig: go.Figure, height: int, dark: bool = False) -> go.Figure:
+    # Explicit hover box so it matches the panels instead of taking the trace colour
+    c = PALETTE[dark]
     fig.update_layout(height=height, margin=dict(l=8, r=8, t=8, b=8), paper_bgcolor="rgba(0,0,0,0)",
-                      plot_bgcolor="rgba(0,0,0,0)", font=FONT,
-                      hoverlabel=dict(bgcolor="rgba(17,23,31,0.94)", bordercolor="#2a3646", font=dict(color=INK, size=12)))
+                      plot_bgcolor="rgba(0,0,0,0)", font=dict(color=c["ink"], family=FONT_FAMILY, size=12),
+                      hoverlabel=dict(bgcolor=c["panel"], bordercolor=c["line"], font=dict(color=c["ink"], size=12)))
     return fig
 
 
-def donut(parts: list[dict], centre: str, sub: str) -> go.Figure:
+def donut(parts: list[dict], centre: str, sub: str, dark: bool = False) -> go.Figure:
+    c = PALETTE[dark]
     fig = go.Figure(go.Pie(labels=[p["name"] for p in parts], values=[p["value"] for p in parts], hole=0.66, sort=False,
-                           direction="clockwise", marker=dict(colors=[p["color"] for p in parts], line=dict(color="#111a2b", width=2)),
+                           direction="clockwise", marker=dict(colors=[p["color"] for p in parts], line=dict(color=c["panel"], width=2)),
                            textinfo="none", hovertemplate="%{label}: %{value:,.0f} cm³ (%{percent})<extra></extra>"))
-    fig.update_layout(showlegend=False, annotations=[dict(text=f"<b>{centre}</b><br><span style='font-size:11px;color:{MUTED}'>{sub}</span>",
-                                                          showarrow=False, font=dict(size=18, color=INK))])
-    return _base(fig, 210)
+    fig.update_layout(showlegend=False, annotations=[dict(text=f"<b>{centre}</b><br><span style='font-size:11px;color:{c['muted']}'>{sub}</span>",
+                                                          showarrow=False, font=dict(size=18, color=c["ink"]))])
+    return _base(fig, 210, dark)
 
 
-def line_chart(series: list[dict], unit: str, x_label: str, markers: list[dict]) -> go.Figure:
+def line_chart(series: list[dict], unit: str, x_label: str, markers: list[dict], dark: bool = False) -> go.Figure:
+    c = PALETTE[dark]
     fig = go.Figure()
     for s in series:
         n = len(s["values"])
@@ -111,32 +116,33 @@ def line_chart(series: list[dict], unit: str, x_label: str, markers: list[dict])
                                    line=dict(color=s["color"], width=2), marker=dict(size=5, opacity=0.01),
                                    customdata=np.arange(n), hovertemplate=f"{s['name']} %{{y:.1f}} {unit}<extra></extra>"))
     for m in markers:
-        fig.add_vline(x=m["x"], line=dict(color=m.get("color", MUTED), dash="dot", width=1),
-                      annotation=dict(text=m["label"], font=dict(color=m.get("color", MUTED), size=11)),
+        fig.add_vline(x=m["x"], line=dict(color=m.get("color", c["muted"]), dash="dot", width=1),
+                      annotation=dict(text=m["label"], font=dict(color=m.get("color", c["muted"]), size=11)),
                       annotation_position=m.get("pos", "top"))
     # No zoom or pan: fixedrange is what locks it (st.plotly_chart turns a falsy dragmode into "pan"); a click on a point
     # still selects it and moves the "current" slice
     # Legend sits above the slice-marker labels (L3, current) so the two rows never overlap
     fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.1, x=0), hovermode="x unified", clickmode="event+select",
-                      xaxis=dict(title=x_label, gridcolor=GRID, zeroline=False, hoverformat="d", showspikes=True, fixedrange=True,
-                                 spikemode="across", spikesnap="cursor", spikecolor=MUTED, spikethickness=1, spikedash="dot"),
-                      yaxis=dict(title=unit, gridcolor=GRID, zeroline=False, fixedrange=True), dragmode=False)
+                      xaxis=dict(title=x_label, gridcolor=c["grid"], zeroline=False, hoverformat="d", showspikes=True, fixedrange=True,
+                                 spikemode="across", spikesnap="cursor", spikecolor=c["muted"], spikethickness=1, spikedash="dot"),
+                      yaxis=dict(title=unit, gridcolor=c["grid"], zeroline=False, fixedrange=True), dragmode=False)
     fig.update_xaxes(automargin=True, title_standoff=8)
     fig.update_yaxes(automargin=True, title_standoff=8)
     # Margins after _base (it sets 8 px all round): room for the y tick labels, the x ticks + title and the legend row
-    return _base(fig, 360).update_layout(margin=dict(l=64, r=16, t=56, b=52))
+    return _base(fig, 360, dark).update_layout(margin=dict(l=64, r=16, t=56, b=52))
 
 
-def area_chart(t: list, v: list, unit: str, color: str, vmax: float | None = None) -> go.Figure:
+def area_chart(t: list, v: list, unit: str, color: str, vmax: float | None = None, dark: bool = False) -> go.Figure:
+    grid = PALETTE[dark]["grid"]
     fig = go.Figure(go.Scatter(x=t, y=v, mode="lines", fill="tozeroy", line=dict(color=color, width=1.5),
                                connectgaps=False, hovertemplate=f"%{{x:.1f}} s · %{{y:.1f}} {unit}<extra></extra>"))
     vals = [x for x in v if x is not None]
     if vals:
         i = int(np.nanargmax([x if x is not None else -np.inf for x in v]))
         fig.add_trace(go.Scatter(x=[t[i]], y=[v[i]], mode="markers", marker=dict(color=color, size=7), hoverinfo="skip"))
-    fig.update_layout(showlegend=False, xaxis=dict(title="s", gridcolor=GRID, zeroline=False),
-                      yaxis=dict(gridcolor=GRID, zeroline=False, range=[0, vmax] if vmax else None))
-    return _base(fig, 180)
+    fig.update_layout(showlegend=False, xaxis=dict(title="s", gridcolor=grid, zeroline=False),
+                      yaxis=dict(gridcolor=grid, zeroline=False, range=[0, vmax] if vmax else None))
+    return _base(fig, 180, dark)
 
 
 

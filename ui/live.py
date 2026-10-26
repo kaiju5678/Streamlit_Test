@@ -50,7 +50,7 @@ PLOTLY_URL = _ensure_plotly_js()
 
 # ================================================================= slice viewer
 VIEWER_CSS = """
-.wrap { display: flex; flex-direction: column; gap: 6px; font: 12px ui-monospace, Consolas, monospace; color: #8696a8; }
+.wrap { display: flex; flex-direction: column; gap: 6px; font: 12px var(--mono, ui-monospace, Consolas, monospace); color: var(--muted, #8696a8); }
 .stage { position: relative; background: #000; border-radius: 4px; overflow: hidden; display: flex;
          align-items: center; justify-content: center; touch-action: none; user-select: none; }
 canvas { display: block; transform-origin: center center; cursor: crosshair; }
@@ -59,17 +59,17 @@ canvas { display: block; transform-origin: center center; cursor: crosshair; }
 .tag { position: absolute; left: 8px; bottom: 6px; color: #7ee08a; text-shadow: 0 0 3px #000; pointer-events: none; }
 .hint { position: absolute; right: 8px; bottom: 6px; color: #66768a; pointer-events: none; }
 .bar { display: flex; align-items: center; gap: 10px; }
-input[type=range] { flex: 1; accent-color: #f0b44c; }
-.num { min-width: 74px; text-align: right; color: #d9e1ea; }
+input[type=range] { flex: 1; accent-color: var(--accent, #f0b44c); }
+.num { min-width: 74px; text-align: right; color: var(--fg, #d9e1ea); }
 .checks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 4px 2px 0;
-          font: 13px 'IBM Plex Sans', 'Segoe UI', sans-serif; color: #d9e1ea; }
+          font: 13px var(--sans, 'Segoe UI', sans-serif); color: var(--fg, #d9e1ea); }
 .checks:empty { display: none; }
 .checks label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
 .checks input { width: 15px; height: 15px; margin: 0; cursor: pointer; accent-color: var(--c); }
 .checks i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--c); }
-.checks label.off { color: #66768a; }
+.checks label.off { color: var(--dim, #66768a); }
 .checks label.off i { opacity: 0.35; }
-.checks .all { margin-left: auto; color: #8a9ab0; font-size: 12px; cursor: pointer; text-decoration: underline; }
+.checks .all { margin-left: auto; color: var(--muted, #8a9ab0); font-size: 12px; cursor: pointer; text-decoration: underline; }
 """
 
 VIEWER_JS = r"""
@@ -324,9 +324,9 @@ export default function (component) {
 
 # ================================================================= sidebar live sliders
 SLIDERS_CSS = """
-.sl { display: flex; flex-direction: column; gap: 10px; font: 14px "Source Sans Pro", sans-serif; color: #d9e1ea; }
-.lbl b { color: #f0b44c; font-weight: 600; }
-input[type=range] { width: 100%; accent-color: #f0b44c; margin: 4px 0 0; }
+.sl { display: flex; flex-direction: column; gap: 10px; font: 14px var(--sans, sans-serif); color: var(--fg, #d9e1ea); }
+.lbl b { color: var(--accent, #f0b44c); font-weight: 600; }
+input[type=range] { width: 100%; accent-color: var(--accent, #f0b44c); margin: 4px 0 0; }
 """
 
 SLIDERS_JS = r"""
@@ -370,18 +370,22 @@ export default function (component) {
 
 # ================================================================= file buttons
 FILES_CSS = """
-.fb { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font: 14px "Source Sans Pro", sans-serif; }
-button { font: inherit; color: #d9e1ea; background: #11171f; border: 1px solid #2e3b4b; border-radius: 8px;
-         padding: 7px 10px; cursor: pointer; width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; }
-button:hover:not(:disabled) { border-color: #f0b44c; color: #f0b44c; }
+.fb { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font: 14px var(--sans, sans-serif); }
+button { font: inherit; color: var(--fg, #d9e1ea); background: var(--panel, #11171f); border: 1px solid var(--line-2, #2e3b4b); border-radius: 8px;
+         padding: 7px 10px; cursor: pointer; width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px;
+         transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease, transform .15s ease; }
+/* Same hover as the Streamlit buttons (assets/style.css) */
+button:hover:not(:disabled) { border-color: var(--accent-line, #f0b44c); color: var(--accent, #f0b44c); background: var(--accent-bg, rgba(240,180,76,0.12));
+                              box-shadow: 0 3px 10px var(--accent-glow, transparent); transform: translateY(-1px); }
+button:active:not(:disabled) { transform: translateY(0); box-shadow: none; }
 button:disabled { opacity: .45; cursor: not-allowed; }
 .dd { position: relative; }
-.menu { position: absolute; z-index: 10; top: calc(100% + 4px); left: 0; right: 0; background: #161e28; border: 1px solid #2e3b4b;
-        border-radius: 8px; padding: 4px; display: none; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+.menu { position: absolute; z-index: 10; top: calc(100% + 4px); left: 0; right: 0; background: var(--panel, #161e28); border: 1px solid var(--line-2, #2e3b4b);
+        border-radius: 8px; padding: 4px; display: none; box-shadow: 0 8px 24px rgba(15,23,42,.16); }
 .menu.open { display: block; }
 .menu button { border: 0; background: transparent; justify-content: flex-start; padding: 7px 10px; }
-.menu button:hover { background: #232e3b; color: #f0b44c; }
-.note { grid-column: 1 / -1; font: 12px ui-monospace, Consolas, monospace; color: #f0b44c; min-height: 0; }
+.menu button:hover { background: var(--accent-bg, #232e3b); color: var(--accent, #f0b44c); box-shadow: none; transform: none; }
+.note { grid-column: 1 / -1; font: 12px var(--sans, sans-serif); color: var(--accent, #f0b44c); min-height: 0; }
 .caret { font-size: 10px; opacity: .8; }
 """
 
@@ -437,16 +441,19 @@ export default function (component) {
 
 # ================================================================= window presets
 PRESETS_CSS = """
-.wp-title { font: 14px "Source Sans Pro", sans-serif; color: #d9e1ea; margin-bottom: 6px; }
+.wp-title { font: 14px var(--sans, sans-serif); color: var(--fg, #d9e1ea); margin-bottom: 6px; }
 .wp { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .wp button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
-             padding: 4px 2px; border-radius: 6px; cursor: pointer; font: 13px "Source Sans Pro", sans-serif;
-             color: #d9e1ea; background: #11171f; border: 1px solid #2e3b4b; }
-.wp button:hover { border-color: #f0b44c; }
-.wp button.on { border-color: #f0b44c; background: rgba(240,180,76,0.12); }
+             padding: 4px 2px; border-radius: 6px; cursor: pointer; font: 13px var(--sans, sans-serif);
+             color: var(--fg, #d9e1ea); background: var(--panel, #11171f); border: 1px solid var(--line-2, #2e3b4b); }
+.wp button { transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
+.wp button:hover { border-color: var(--accent-line, #f0b44c); background: var(--accent-bg, rgba(240,180,76,0.12));
+                   box-shadow: 0 3px 10px var(--accent-glow, transparent); transform: translateY(-1px); }
+.wp button:active { transform: translateY(0); box-shadow: none; }
+.wp button.on { border-color: var(--accent, #f0b44c); background: var(--accent-bg, rgba(240,180,76,0.12)); }
 .wp b { font-weight: 600; font-size: 12px; text-align: center; line-height: 1.2; white-space: nowrap; }
-.wp button.on b { color: #f0b44c; }
-.wp span { font: 11px ui-monospace, Consolas, monospace; color: #8a9ab0; line-height: 1.2; }
+.wp button.on b { color: var(--accent, #f0b44c); }
+.wp span { font: 11px var(--mono, ui-monospace, monospace); color: var(--muted, #8a9ab0); line-height: 1.2; }
 """
 
 PRESETS_JS = r"""
@@ -488,17 +495,18 @@ MESH_CSS = """
 .bcm-reset { position: absolute; right: 8px; top: 8px; z-index: 5; padding: 4px 10px; border-radius: 4px; cursor: pointer;
              font: 12px 'IBM Plex Sans', 'Segoe UI', sans-serif; color: #d9e1ea; background: rgba(17,23,31,0.85);
              border: 1px solid #2a3646; }
-.bcm-reset:hover { border-color: #f0b44c; color: #f0b44c; }
+.bcm-reset { transition: border-color .15s ease, color .15s ease; }
+.bcm-reset:hover { border-color: var(--accent, #f0b44c); color: var(--accent, #f0b44c); }
 .bcm-hint { position: absolute; left: 10px; bottom: 6px; z-index: 5; font: 11px 'IBM Plex Sans', 'Segoe UI', sans-serif;
             color: #66768a; pointer-events: none; }
 .bcm-checks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 10px 2px 2px;
-              font: 13px 'IBM Plex Sans', 'Segoe UI', sans-serif; color: #d9e1ea; }
+              font: 13px var(--sans, 'Segoe UI', sans-serif); color: var(--fg, #d9e1ea); }
 .bcm-checks label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
 .bcm-checks input { width: 15px; height: 15px; margin: 0; cursor: pointer; accent-color: var(--c); }
 .bcm-checks i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--c); }
-.bcm-checks label.off { color: #66768a; }
+.bcm-checks label.off { color: var(--dim, #66768a); }
 .bcm-checks label.off i { opacity: 0.35; }
-.bcm-all { margin-left: auto; color: #8a9ab0; font-size: 12px; cursor: pointer; text-decoration: underline; }
+.bcm-all { margin-left: auto; color: var(--muted, #8a9ab0); font-size: 12px; cursor: pointer; text-decoration: underline; }
 """
 
 MESH_JS = r"""

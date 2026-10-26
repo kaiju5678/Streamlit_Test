@@ -31,8 +31,10 @@ def _llm_reachable(url: str) -> str | None:
     return llm_client.reachable()
 
 
-def sec(title: str) -> None:
-    st.markdown(f"<div class='sec'>{title}</div>", unsafe_allow_html=True)
+def sec(title: str, n: int | None = None, done: bool = False) -> None:
+    """Section heading; workflow sections carry their step number, or a tick once done."""
+    mark = f"<i class='{'done' if done else ''}'>{'✓' if done else n}</i>" if n else ""
+    st.markdown(f"<div class='sec'>{mark}{title}</div>", unsafe_allow_html=True)
 
 
 def kv(rows: list[tuple[str, str]]) -> None:
@@ -45,10 +47,17 @@ def render() -> None:
     ready = health is not None
     busy = ss.job is not None
     with st.sidebar:
-        st.markdown("<div class='brand'><b>BodyComp</b><span>CT body composition</span></div>", unsafe_allow_html=True)
+        with st.container(horizontal=True, vertical_alignment="center", key="brand_row"):
+            st.markdown("<div class='brand'><span class='logo'><svg width='16' height='16' viewBox='0 0 24 24' fill='none' "
+                        "stroke='currentColor' stroke-width='2' aria-hidden='true'><ellipse cx='12' cy='12' rx='9' ry='7'/>"
+                        "<circle cx='12' cy='15' r='2.5'/></svg></span><div><b>CT Body Composition</b>"
+                        "<span>BodyComp analysis console</span></div></div>", unsafe_allow_html=True)
+            st.button("Light" if ss.dark else "Dark", key="theme_btn", on_click=S.cb_theme,
+                      icon=":material/light_mode:" if ss.dark else ":material/dark_mode:",
+                      help="Switch to the light theme" if ss.dark else "Switch to the dark theme")
 
         # ---- 1 · Data input
-        sec("1 · Data input")
+        sec("Data input", 1, v is not None)
         live.file_buttons(busy=busy, has_ct=v is not None, dicom=ready and not busy)
         # The buttons above open the file pickers of these hidden uploaders (Streamlit's upload endpoint, up to 2 GB).
         with st.container(key="bc_uploads"):
@@ -68,14 +77,16 @@ def render() -> None:
             st.markdown(f"<p class='status{' err' if ss.status['error'] else ''}'>{ss.status['text']}</p>", unsafe_allow_html=True)
 
         # ---- 2 · Segmentation
-        sec("2 · Segmentation")
+        sec("Segmentation", 2, ss.mask is not None)
         can_segment = v is not None and bool(v["bytes"]) and ready and not busy
-        st.button("Working…" if busy else "Run segmentation", type="primary", icon=":material/play_arrow:",
+        st.button("Segmenting…" if busy else "Run segmentation again" if ss.mask is not None else "Run segmentation",
+                  type="secondary" if ss.mask is not None else "primary", icon=":material/play_arrow:",
                   on_click=S.cb_segment, disabled=not can_segment, width="stretch")
         if not seg_client.configured():
             note = "No inference server configured (INFERENCE_URL)."
         elif health is None:
-            note = f"Inference server offline at {config.INFERENCE_BASE}. Start it with python server_segment/server.py."
+            note = (f"Segmentation server is not running ({config.INFERENCE_BASE}). Start it with "
+                    "<span class='mono'>python server_segment/server.py</span>, or open a mask you already have.")
         elif not health.get("repo_found", True):
             note = "Server cannot find CT-Muscle-and-Fat-Segmentation (set SEG_REPO)."
         elif health.get("error"):
@@ -85,10 +96,11 @@ def render() -> None:
         else:
             model = "Mazurowski nnU-Net" if health.get("model") == "mazurowski" else health["model"]
             note = f"Model: {model}" + (" + TotalSegmentator" if health.get("totalsegmentator") else "")
-        st.markdown(f"<div class='note model'>{note}</div>", unsafe_allow_html=True)
+        st.markdown(f"<p class='note{' warn' if ready is False and seg_client.configured() else ' model'}'>{note}</p>",
+                    unsafe_allow_html=True)
 
         # ---- 3 · Viewer controls
-        sec("3 · Viewer controls")
+        sec("Viewer")
         if v is not None:
             live.sliders(v)
         live.window_presets()
@@ -103,15 +115,15 @@ def render() -> None:
                     unsafe_allow_html=True)
 
         # ---- L3 landmark
-        sec("L3 landmark")
+        sec("L3 level", 3, ss.l3 is not None)
         c1, c2 = st.columns(2)
-        c1.button("Set L3 at current axial", on_click=S.cb_set_l3, disabled=v is None, width="stretch")
+        c1.button("Set L3 here", help="Mark the current axial slice as the L3 level", on_click=S.cb_set_l3, disabled=v is None, width="stretch")
         c2.button("Go to L3", on_click=S.cb_go_l3, disabled=ss.l3 is None, width="stretch")
         st.markdown(f"<p class='status'>{f'L3 at axial slice {ss.l3 + 1}' if ss.l3 is not None else 'Not set'}</p>",
                     unsafe_allow_html=True)
 
         # ---- Patient
-        sec("Patient")
+        sec("Patient <small>optional</small>")
         c1, c2 = st.columns(2)
         c1.selectbox("Sex", ["", "M", "F"], key="p_sex", format_func=lambda s: {"": "–", "M": "Male", "F": "Female"}[s])
         c2.number_input("Age", min_value=0, max_value=120, step=1, key="p_age", placeholder="–")
@@ -119,22 +131,30 @@ def render() -> None:
         c1.number_input("Height cm", min_value=50.0, max_value=250.0, step=1.0, key="p_h", placeholder="–")
         c2.number_input("Weight kg", min_value=10.0, max_value=400.0, step=0.1, key="p_w", placeholder="–")
         b = an.bmi_of(S.patient())
-        st.markdown(f"<p class='status'>{f'BMI {b:.1f} kg/m²' if b else 'Sex, height and weight are needed for index cut-offs.'}</p>",
-                    unsafe_allow_html=True)
+        st.markdown(f"<p class='note'>{f'BMI {b:.1f} kg/m². ' if b else 'Sex, height and weight enable the L3 cut-offs. '}"
+                    "Kept on this computer, never sent.</p>", unsafe_allow_html=True)
 
         # ---- 4 · Report endpoint
-        sec("4 · Report endpoint")
+        sec("Report", 4, ss.report is not None)
         on = llm_client.configured()
         why = _llm_reachable(config.LLM_URL) if on else None
-        st.markdown(f"<p class='status{' err' if why else ''}'><span class='led {'bad' if why else 'on' if on else ''}'></span>"
-                    f"{config.LLM_MODEL if on else 'No language model · rule-based drafts'}"
-                    f"{f' · {why}' if why else ''}</p>", unsafe_allow_html=True)
-        st.button("Generate AI report" if on else "Generate draft report", on_click=S.cb_generate,
+        # Off the lab network is normal (MedGemma is only reachable there): amber, not an error
+        st.markdown(f"<p class='status'><span class='led {'mid' if why else 'on' if on else ''}'></span>"
+                    f"{html.escape(config.LLM_MODEL) if on else 'No language model · rule-based drafts'}"
+                    f"{' · not reachable' if why else ' · online' if on else ''}</p>"
+                    + (f"<p class='note warn' title='{html.escape(why)}'>Only reachable from the lab network. "
+                       "Reports will use the rule-based draft for now.</p>" if why else ""), unsafe_allow_html=True)
+        st.button("Generate AI report" if on else "Generate draft report", on_click=S.cb_generate, icon=":material/description:",
+                  type="primary" if ss.mask is not None and ss.report is None else "secondary",
                   disabled=v is None, width="stretch")
+
 
         # ---- Device status
         sec("Device status")
         device_panel()
+        st.markdown("<div class='privacy'><b>Privacy mode</b>CT images and masks never leave this computer. Only eight "
+                    "de-identified numbers are sent for the report, checked against a whitelist first.</div>",
+                    unsafe_allow_html=True)
 
 
 @st.fragment(run_every=10)
@@ -144,8 +164,8 @@ def device_panel() -> None:
         st.markdown("<p class='note'>No inference server configured.</p>", unsafe_allow_html=True)
         return
     if not d.get("online"):
-        st.markdown(f"<p class='status err'><span class='led bad'></span>Offline{' · ' + d['error'] if d.get('error') else ''}</p>",
-                    unsafe_allow_html=True)
+        st.markdown(f"<p class='status' title='{html.escape(d.get('error') or '')}'><span class='led mid'></span>"
+                    "Segmentation server not connected</p>", unsafe_allow_html=True)
         return
     st.markdown(f"<p class='status'><span class='led {'mid' if d.get('busy') else 'on'}'></span>{d['device']} · "
                 f"{'running' if d.get('busy') else 'ready'}</p>", unsafe_allow_html=True)

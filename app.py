@@ -16,12 +16,15 @@ import config
 from ui import sidebar, tabs
 from ui import state as S
 
-st.set_page_config(page_title="BodyComp · CT body composition", page_icon="🩻", layout="wide",
+st.set_page_config(page_title="BodyComp · Body composition analysis", page_icon="🩻", layout="wide",
                    initial_sidebar_state="expanded")
-st.markdown(f"<style>{(config.BASE_DIR / 'assets' / 'style.css').read_text(encoding='utf-8')}</style>", unsafe_allow_html=True)
-
 S.init()
 ss = st.session_state
+
+# dark.css only redefines the colour variables and restyles Streamlit's own widgets (the sidebar theme button)
+css = ["style.css", "dark.css"] if ss.dark else ["style.css"]
+st.markdown("<style>" + "".join((config.BASE_DIR / "assets" / f).read_text(encoding="utf-8") for f in css) + "</style>",
+            unsafe_allow_html=True)
 
 # Long actions queued by buttons (DICOM conversion, report generation) run here, before anything is drawn.
 if ss.action:
@@ -29,27 +32,67 @@ if ss.action:
     S.run_action(action)
 
 
+def took_text(secs) -> str:
+    return "–" if secs is None else f"{int(secs) // 60} min {int(secs) % 60:02d} s" if secs >= 60 else f"{int(secs)} s"
+
+
+def steps(a: dict) -> tuple[list[tuple[str, str]], str]:
+    """The five workflow steps as (label, done|now|todo) and a plain sentence on what to do next."""
+    v, mask, rep, sig = a["vol"], a["mask"], a["report"], a["signature"]
+    stale = bool(rep) and rep["payloadKey"] != a["payload_key"]
+    done = [v is not None, mask is not None, a["l3"] is not None, bool(rep) and not stale, bool(sig)]
+    labels = ["Open CT", "Segment", "Check L3", "Report", "Sign off"]
+    now = next((i for i, d in enumerate(done) if not d), None)
+    hint = {
+        0: "Open a CT study in the sidebar (NIfTI file or DICOM).",
+        1: ("Segmentation is running. You can keep scrolling through the slices meanwhile." if ss.job else
+            "Run segmentation in the sidebar, or open a mask you already have."),
+        2: "Scroll to the L3 vertebra and press <b>Set L3 here</b> in the sidebar.",
+        3: ("The measurements changed after the report was written. Generate it again." if stale else
+            "Generate the report. Only the eight numbers on the <b>Transmitted JSON</b> tab are sent."),
+        4: ("This is the sample study, so it cannot be signed. Open a real CT to sign a report." if v and v["sample"] else
+            "Review the draft on the <b>AI report</b> tab, then sign it."),
+        None: "Report signed. Export it as PDF or CSV from the Overview.",
+    }[now]
+    return [(lab, "done" if d else "now" if i == now else "todo") for i, (lab, d) in enumerate(zip(labels, done))], hint
+
+
 def header(a: dict) -> None:
     v, mask, rep, sig = a["vol"], a["mask"], a["report"], a["signature"]
     if v:
         nx, ny, nz = v["shape"]
         sx, sy, sz = v["spacing"]
-        case = f"<strong title='{tabs.h(v['name'])}'>{tabs.h(v['name'])}</strong><span>{nx}×{ny}×{nz} · {sx:.2f}×{sy:.2f}×{sz:.2f} mm</span>"
+        sub = (f"Study <b title='{tabs.h(v['name'])}'>{tabs.h(v['name'])}</b><span>{nz} axial slices</span>"
+               f"<span class='mono'>{nx}×{ny} · {sx:.2f}×{sy:.2f}×{sz:.2f} mm</span>")
+        if ss.seg_secs is not None and mask:
+            sub += f"<span>segmented in <b>{took_text(ss.seg_secs)}</b></span>"
     else:
-        case = "<span>No study open</span>"
-    seg = ({"sample": "Sample mask"}.get(mask["source"], "Mask loaded") if mask
-           else "Running…" if ss.job else "No mask")
-    repst = ("Signed" if sig else ("Draft · out of date" if rep["payloadKey"] != a["payload_key"] else "Draft") if rep
-             else "Not started")
-    secs = time.time() - ss.job["t0"] if ss.job else ss.seg_secs
-    took = "–" if secs is None else f"{int(secs) // 60} min {int(secs) % 60:02d} s" if secs >= 60 else f"{int(secs)} s"
-    st.markdown(
-        "<header class='top'><div class='brand'><b>BodyComp</b><span>CT body composition</span></div>"
-        f"<div class='case'>{case}</div><div class='chips-top'>"
-        f"<span class='chip-s {'on' if mask else 'mid' if ss.job else ''}'><em>Segmentation</em>{seg}</span>"
-        f"<span class='chip-s {'mid' if ss.job else 'on' if ss.seg_secs is not None else ''}'><em>Seg time</em>{took}</span>"
-        f"<span class='chip-s {'on' if sig else 'mid' if rep else ''}'><em>Report</em>{repst}</span></div></header>",
-        unsafe_allow_html=True)
+        sub = "<span>No study open</span>"
+    if ss.job:
+        seg = ("mid", f"Segmenting · {took_text(time.time() - ss.job['t0'])}")
+    elif mask:
+        seg = ("ok", "Segmentation OK" if mask["source"] == "inference" else "Mask loaded")
+    else:
+        seg = ("", "Not segmented")
+    if rep:
+        stale = rep["payloadKey"] != a["payload_key"]
+        repc = ("mid", "Report out of date") if stale else ("ok", "Report · " + ("AI" if rep["source"] == "llm" else "rule-based"))
+    else:
+        repc = ("", "No report")
+    signc = ("ok", "Signed") if sig else ("mid", "Not signed") if rep else ("", "Not signed")
+    chips = "".join(f"<span class='chip {c}'>{t}</span>" for c, t in (seg, repc, signc))
+    st.markdown(f"<header class='top'><div class='ttl'><h1>Body Composition Analysis</h1><p>{sub}</p></div>"
+                f"<div class='chips-top'>{chips}</div></header>", unsafe_allow_html=True)
+    rows, hint = steps(a)
+    # Connectors are their own items between the steps, so the highlighted step never runs into a line
+    items = []
+    for n, (lab, state) in enumerate(rows, 1):
+        if n > 1:
+            items.append(f"<li class='bar{' done' if rows[n - 2][1] == 'done' else ''}' aria-hidden='true'></li>")
+        items.append(f"<li class='{state}'{' aria-current=step' if state == 'now' else ''}>"
+                     f"<i>{'✓' if state == 'done' else n}</i>{lab}</li>")
+    st.markdown(f"<nav class='steps' aria-label='Workflow'><ol>{''.join(items)}</ol>"
+                f"<p class='next'><b>Next</b>{hint}</p></nav>", unsafe_allow_html=True)
 
 
 @st.fragment(run_every=1)

@@ -110,11 +110,12 @@ Measured on the demo CT (512×512×53, RTX 3050 laptop 4 GB, TTA on) against the
 ## Layout
 
 ```
-app.py              page: header (live Seg time while segmenting), tabs
+app.py              page: header (status chips, workflow stepper with the next step, live Seg time), tabs
 ui/state.py         session state and actions (load, segment, report, sign)
 ui/sidebar.py       sidebar sections
 ui/live.py          real-time slice viewers, sliders, file buttons, 3D model (st.components.v2)
 ui/tabs.py          the six tabs
+assets/style.css    light theme (CSS variables); assets/dark.css: dark theme, switched by the sidebar button
 core/analysis.py    volumetrics, L3 indices, references, rule narrative, CSV
 core/biomarkers.py  the eight transmitted biomarkers, whitelist check (blocks anything else), derived indices
 core/render.py      MPR slices, Plotly viewers and charts, 3D surfaces
@@ -127,6 +128,6 @@ server_segment/engine.py resident nnU-Net + TotalSegmentator, metrics via core/b
 server_segment/monitor.py  GPU/CPU telemetry ring buffer, run records
 server_segment/dicom_zip.py  DICOM .zip -> NIfTI
 server_segment/benchmark.py  TTA on/off x AMP-FP16/FP32 speed and agreement
-```
 server_segment/select_cases.py  TotalSegmentator-dataset CTs that cover T12–L4 (cases.csv, selected.txt)
 server_segment/fetch_totalseg.py  only the T12/L3/L4 masks (~20 MB) or chosen CTs out of the 23.6 GB Zenodo zip
+```

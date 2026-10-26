@@ -40,7 +40,7 @@ DEFAULTS = dict(
     status={"text": "", "error": False}, report=None, signature=None, run=None, body=None, seg_secs=None,
     weblog=[], job=None, action=None, editing=False, confirming=False, sign_error="",
     mesh={}, hide_server=False, up_nonce=0, last_click={}, tab_default=None, tab_nonce=0,
-    p_sex="", p_age=None, p_h=None, p_w=None,
+    p_sex="", p_age=None, p_h=None, p_w=None, dark=False,
 )
 
 
@@ -290,6 +290,10 @@ def cb_upload_dicom(kind: str) -> None:
 
 def cb_sample() -> None:
     load_sample()
+
+
+def cb_theme() -> None:
+    ss.dark = not ss.dark
 
 
 def cb_set_l3() -> None:

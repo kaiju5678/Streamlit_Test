@@ -1,0 +1,75 @@
+/* Dark theme, loaded after style.css when the sidebar theme button is on (ss.dark). It redefines the colour variables,
+   then restyles Streamlit's own widgets, which keep the light base theme of .streamlit/config.toml otherwise.
+   Chart colours follow in core/render.PALETTE. */
+:root {
+  color-scheme: dark;
+  --bg: #0d1117; --panel: #161b22; --panel-2: #1c2129; --line: #30363d; --line-2: #3d444d;
+  --fg: #e6edf3; --muted: #b1bac4; --dim: #8b949e;
+  /* Soft cyan accent (as dark CT viewers use): calmer than the light theme's blue on a dark page, and apart from the
+     tissue colours (red, yellow, teal, purple). Primary buttons are cyan with dark text. */
+  --accent: #56c8e0; --accent-ink: #062a33; --accent-bg: rgba(86, 200, 224, 0.12); --accent-hover: #7fd8ea;
+  --accent-glow: rgba(86, 200, 224, 0.25);
+  --ok: #3fb950; --ok-bg: rgba(46, 160, 67, 0.15); --warn: #d29922; --warn-bg: rgba(187, 128, 9, 0.14);
+  --bad: #f85149; --bad-bg: rgba(248, 81, 73, 0.12);
+  --ok-ink: #56d364; --ok-line: rgba(46, 160, 67, 0.45); --mid-bg: rgba(187, 128, 9, 0.16); --mid-ink: #e3b341; --mid-line: rgba(187, 128, 9, 0.45);
+  --bad-ink: #ff7b72; --bad-line: rgba(248, 81, 73, 0.45); --bad-fill: rgba(248, 81, 73, 0.15); --zone: rgba(248, 81, 73, 0.28);
+  --sec-ink: #c9d1d9; --accent-line: rgba(86, 200, 224, 0.45); --accent-deep: #b8ecf6; --term-bg: #010409;
+}
+
+/* ---------- page, sidebar, text ---------- */
+.stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"], [data-testid="stBottomBlockContainer"] { background: var(--bg); color: var(--fg); }
+section[data-testid="stSidebar"], section[data-testid="stSidebar"] > div { background: var(--panel-2); }
+.stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, [data-testid="stMarkdownContainer"], [data-testid="stWidgetLabel"],
+[data-testid="stWidgetLabel"] p, [data-testid="stCaptionContainer"], [data-testid="stSpinner"], .stApp label { color: var(--fg); }
+[data-testid="stCaptionContainer"] { color: var(--dim); }
+/* Button labels are markdown too: let them take the button's colour (dark ink on cyan, accent on hover) */
+.stApp button [data-testid="stMarkdownContainer"] { color: inherit; }
+.stApp hr { border-color: var(--line); }
+
+/* ---------- buttons ---------- */
+[data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-tertiary"], [data-testid^="stBaseButton-segmented_control"],
+[data-testid="stBaseButton-pills"], [data-testid="stNumberInputStepDown"], [data-testid="stNumberInputStepUp"] {
+  background: var(--panel); color: var(--fg); border-color: var(--line-2); }
+[data-testid="stBaseButton-tertiary"] { background: transparent; }
+/* Primary buttons and the other spots Streamlit paints with config.toml's primaryColor */
+[data-testid="stBaseButton-primary"]:not(:disabled) { background: var(--accent); border-color: var(--accent); }
+[data-testid="stBaseButton-primary"]:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+[data-testid="stTab"][aria-selected="true"] { color: var(--accent); }
+[data-baseweb="tab-highlight"], [role="tablist"] .react-aria-SelectionIndicator { background: var(--accent) !important; }
+[data-testid="stNumberInputContainer"]:focus-within, .stSelectbox [role="group"]:focus-within,
+[data-baseweb="textarea"]:focus-within, [data-baseweb="input"]:focus-within { border-color: var(--accent) !important; }
+[data-testid="stBaseButton-segmented_controlActive"] { background: var(--accent-bg); color: var(--accent); border-color: var(--accent-line); }
+.stApp button:disabled, .stApp button:disabled:hover { background: var(--panel-2) !important; color: var(--dim) !important;
+  border-color: var(--line) !important; box-shadow: none; transform: none; }
+[data-testid="stBaseButton-primary"]:disabled { color: var(--dim) !important; }
+
+/* ---------- inputs, menus ---------- */
+[data-baseweb="input"], [data-baseweb="base-input"], [data-baseweb="textarea"], [data-baseweb="select"] > div {
+  background: var(--panel) !important; border-color: var(--line-2) !important; }
+.stApp input, .stApp textarea { color: var(--fg) !important; background: transparent !important; caret-color: var(--fg); }
+.stApp input::placeholder, .stApp textarea::placeholder { color: var(--dim) !important; }
+/* The inner wrappers of number inputs and select boxes carry their own light background */
+[data-testid="stNumberInputContainer"], [data-baseweb="select"] > div, .stSelectbox [role="group"] { background: var(--panel) !important; border-color: var(--line-2) !important; }
+[data-testid="stNumberInputContainer"] div:not([data-testid^="stNumberInputStep"]), [data-baseweb="select"] div { background: transparent !important; }
+[data-baseweb="select"] div, [data-baseweb="select"] span { color: var(--fg) !important; }
+[data-baseweb="select"] svg, [data-baseweb="input"] svg, [data-testid^="stNumberInputStep"] svg { color: var(--muted); fill: currentColor; }
+[data-testid="stButtonGroup"] button:not([data-testid$="Active"]) { background: var(--panel); color: var(--fg); border-color: var(--line-2); }
+[data-baseweb="tooltip"], [data-baseweb="tooltip"] > div, [data-testid="stTooltipContent"] { background: var(--panel) !important; color: var(--fg) !important; }
+button[aria-label^="Help for"] { background: transparent !important; color: var(--dim) !important; }
+/* Bordered containers take their border colour from config.toml (light); restate it */
+[data-testid="stVerticalBlock"], [data-testid="stColumn"], [data-testid="stLayoutWrapper"] { border-color: var(--line); }
+[data-baseweb="popover"] ul, [role="listbox"], [data-baseweb="menu"] { background: var(--panel) !important; border-color: var(--line-2) !important; }
+[data-baseweb="popover"] li, [role="option"] { color: var(--fg) !important; }
+[data-baseweb="popover"] li:hover, [role="option"]:hover, [role="option"][data-focused], [role="option"][aria-selected="true"] { background: var(--panel-2) !important; }
+
+/* ---------- tabs, expander, alerts, code, tables ---------- */
+[data-baseweb="tab-border"] { background: var(--line) !important; }
+[data-testid="stTab"] p { color: var(--muted); }
+[data-testid="stTab"][aria-selected="true"] p, [data-testid="stTab"][data-selected] p { color: var(--fg); }
+[data-testid="stExpander"] details { border-color: var(--line); background: var(--panel); }
+[data-testid="stExpander"] summary { color: var(--fg); }
+[data-testid="stExpander"] summary:hover { color: var(--accent); }
+[data-testid="stAlertContainer"] { background: var(--accent-bg) !important; color: var(--fg) !important; }
+[data-testid="stCode"] pre, .stApp pre { background: var(--panel-2) !important; color: var(--fg); }
+/* Streamlit draws data frames on a canvas in the light theme's colours; invert it (hue kept) to match */
+[data-testid="stDataFrame"] { filter: invert(0.9) hue-rotate(180deg); }

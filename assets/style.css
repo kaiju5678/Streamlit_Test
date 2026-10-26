@@ -1,38 +1,75 @@
-/* Reading-room workstation look of ct-scan-test (dark). Base colours also set in .streamlit/config.toml. */
+/* Light clinical dashboard (the advisor's reference layout). Base colours also set in .streamlit/config.toml.
+   Red/amber/green are kept for findings and status; the accent (blue) is for actions. The CT stages stay black. */
 :root {
-  --bg: #0a0e13; --panel: #11171f; --panel-2: #161e28; --line: #232e3b; --line-2: #2e3b4b;
-  --fg: #d9e1ea; --muted: #8696a8; --dim: #66768a; --accent: #f0b44c; --accent-ink: #1a1206;
-  --ok: #5ccf8a; --warn: #f0b44c; --bad: #ef6b6b; --warn-bg: rgba(240, 180, 76, 0.1); --term-bg: #05080c;
-  --mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --bg: #ffffff; --panel: #ffffff; --panel-2: #f6f7f9; --line: #e5e7eb; --line-2: #d1d5db;
+  --fg: #111827; --muted: #4b5563; --dim: #6b7280; --accent: #1d4ed8; --accent-ink: #ffffff; --accent-bg: #eff6ff;
+  --ok: #15803d; --ok-bg: #dcfce7; --warn: #b45309; --warn-bg: #fffbeb; --bad: #b91c1c; --bad-bg: #fef2f2;
+  --ok-ink: #166534; --ok-line: #bbf7d0; --mid-bg: #fef3c7; --mid-ink: #92400e; --mid-line: #fde68a;
+  --bad-ink: #991b1b; --bad-line: #fecaca; --bad-fill: #fee2e2; --zone: rgba(185, 28, 28, 0.18);
+  --sec-ink: #374151; --accent-line: #bfdbfe; --accent-deep: #1e3a8a; --term-bg: #0f172a;
+  --accent-hover: #1e40af; --accent-glow: rgba(29, 78, 216, 0.22);
+  --sans: Inter, 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --mono: 'JetBrains Mono', 'Cascadia Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
-.block-container { padding-top: 0; padding-bottom: 1rem; max-width: 1680px; }
+.block-container { padding-top: 1.2rem; padding-bottom: 1rem; max-width: 1680px; }
 code, .mono { font-family: var(--mono); }
 h3, h4 { margin: 0; }
 
-/* primary buttons: amber with dark ink, as in the reference */
 [data-testid="stBaseButton-primary"]:not(:disabled) { color: var(--accent-ink) !important; font-weight: 600; }
+
+/* ---------- button hover: accent tint, a 1 px lift and a soft shadow; pressed sits back down ---------- */
+.stApp button[data-testid^="stBaseButton"] {
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease, transform .15s ease; }
+[data-testid="stBaseButton-secondary"]:hover:not(:disabled) {
+  background: var(--accent-bg); border-color: var(--accent-line); color: var(--accent); box-shadow: 0 3px 10px var(--accent-glow); transform: translateY(-1px); }
+[data-testid="stBaseButton-primary"]:hover:not(:disabled) {
+  background: var(--accent-hover); border-color: var(--accent-hover); box-shadow: 0 4px 14px var(--accent-glow); transform: translateY(-1px); }
+[data-testid="stBaseButton-tertiary"]:hover:not(:disabled) { background: var(--accent-bg); color: var(--accent); }
+/* Joined buttons (segmented control) only tint, so the group stays flush */
+[data-testid="stBaseButton-segmented_control"]:hover:not(:disabled) { background: var(--accent-bg); color: var(--accent); border-color: var(--accent-line); }
+.stApp button[data-testid^="stBaseButton"]:active:not(:disabled) { transform: translateY(0); box-shadow: none; }
+.stApp button[data-testid^="stBaseButton"]:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
 
 /* No Streamlit top bar (Deploy, main menu, running/Stop indicator) so the page starts at the top edge;
    segmentation progress shows in the header chips instead */
 [data-testid="stHeader"] { display: none !important; }
 
 /* ---------- header ---------- */
-.top { display: flex; align-items: center; gap: 16px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 6px;
-       background: var(--panel); flex-wrap: nowrap; margin-bottom: 4px; }
-.brand { display: flex; align-items: baseline; gap: 8px; flex-shrink: 0; white-space: nowrap; }
-.brand b { font-weight: 600; letter-spacing: 0.02em; color: var(--fg); font-size: 15px; }
-.brand span { color: var(--muted); font-size: 12px; }
-/* One row: the case details take the free width; when it runs out each part is cut with "…" (file name on hover),
-   so the chips never drop to a second line */
-.case { font: 12px var(--mono); color: var(--muted); display: flex; gap: 12px; flex: 1 1 auto; min-width: 0; align-items: center; }
-.case > * { white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.case strong { color: var(--fg); font-weight: 500; flex-shrink: 0.5; min-width: 12ch; }
-.chips-top { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
-.chip-s { display: grid; font: 11px var(--mono); padding: 2px 8px; border: 1px solid var(--line-2); border-radius: 4px; color: var(--muted); line-height: 1.3; }
-.chip-s em { font-style: normal; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
-.chip-s.on { border-color: var(--ok); color: var(--ok); }
-.chip-s.mid { border-color: var(--warn); color: var(--warn); }
+html, body, .stApp { font-family: var(--sans); }
+.top { display: flex; align-items: flex-start; gap: 16px; padding: 4px 0 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.ttl { flex: 1 1 420px; min-width: 0; }
+.ttl h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.01em; color: var(--fg); margin: 0; padding: 0; line-height: 1.2; }
+/* One line of study details; each part is cut with "…" when space runs out (file name on hover) */
+.ttl p { margin: 6px 0 0; color: var(--muted); font-size: 14px; display: flex; gap: 6px 14px; flex-wrap: wrap; min-width: 0; }
+.ttl p > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.ttl p b { color: var(--fg); font-weight: 600; }
+.ttl p .mono { font-size: 12.5px; }
+.chips-top { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.chip { font-size: 11.5px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; padding: 4px 10px; border-radius: 999px;
+        background: var(--panel-2); color: var(--dim); border: 1px solid var(--line); white-space: nowrap; }
+.chip.ok { background: var(--ok-bg); color: var(--ok-ink); border-color: var(--ok-line); }
+.chip.mid { background: var(--mid-bg); color: var(--mid-ink); border-color: var(--mid-line); }
 .tag { font: 11px var(--mono); padding: 2px 7px; border-radius: 3px; border: 1px solid var(--line-2); color: var(--muted); white-space: nowrap; }
+
+/* ---------- workflow stepper ---------- */
+/* A card under the title: the steps on one row (connectors stretch between them), the "Next" hint below */
+.steps { margin: 14px 0 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); padding: 10px 14px; }
+[data-testid="stMarkdownContainer"] .steps ol { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; gap: 8px; }
+[data-testid="stMarkdownContainer"] .steps li { margin: 0; display: flex; align-items: center; gap: 7px; flex: none; font-size: 13.5px;
+  color: var(--dim); padding: 4px 12px 4px 4px; border-radius: 999px; border: 1px solid transparent; white-space: nowrap; }
+.steps li.bar { flex: 1 1 24px; min-width: 12px; height: 2px; padding: 0; border: 0; border-radius: 1px; background: var(--line-2); }
+.steps li.bar.done { background: var(--ok-line); }
+.steps li i { font-style: normal; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 11.5px;
+              font-weight: 600; border: 1px solid var(--line-2); background: var(--panel); flex: none; }
+.steps li.done { color: var(--ok-ink); }
+.steps li.done i { background: var(--ok-bg); border-color: var(--ok-line); color: var(--ok-ink); }
+[data-testid="stMarkdownContainer"] .steps li.now { color: var(--accent); font-weight: 600; background: var(--accent-bg); border-color: var(--accent-line); }
+.steps li.now i { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+[data-testid="stMarkdownContainer"] .steps p.next { margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed var(--line-2);
+  font-size: 13.5px; line-height: 1.5; color: var(--fg); }
+.next > b:first-child { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+                         color: var(--accent); margin-right: 8px; }
+@media (max-width: 1100px) { [data-testid="stMarkdownContainer"] .steps ol { flex-wrap: wrap; } .steps li.bar { display: none; } }
 
 /* ---------- sidebar ---------- */
 .st-key-bc_uploads { display: none !important; }   /* opened by the file buttons (ui/live.py) */
@@ -42,9 +79,25 @@ section[data-testid="stSidebar"] { width: 340px !important; max-width: 340px !im
 [data-testid="stSidebarResizeHandle"], [data-testid="stSidebarCollapseButton"],
 [data-testid="stExpandSidebarButton"], [data-testid="stSidebarHeader"] { display: none !important; }
 [data-testid="stSidebarUserContent"] { padding-top: 1rem !important; }
-section[data-testid="stSidebar"] .brand { margin: 0 0 6px; }
-.sec { font: 600 11px var(--mono); letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted);
-       border-top: 1px solid var(--line); padding-top: 12px; margin: 10px 0 2px; }
+section[data-testid="stSidebar"] .brand { margin: 0 0 6px; display: flex; align-items: center; gap: 10px; }
+/* Brand and the theme button share one row */
+.st-key-brand_row { flex-wrap: nowrap; gap: 8px; margin-bottom: 6px; }
+.st-key-brand_row > div:first-child { flex: 1 1 auto; min-width: 0; }
+.st-key-brand_row .stButton, .st-key-brand_row .stButton button { flex: none; white-space: nowrap; }
+.st-key-brand_row .brand { margin: 0 !important; }
+.brand .logo { width: 30px; height: 30px; border-radius: 7px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; flex: none; }
+.brand > div { display: grid; }
+section[data-testid="stSidebar"] .brand b { font-size: 15.5px; font-weight: 700; color: var(--fg); }
+section[data-testid="stSidebar"] .brand span { font-size: 12px; color: var(--dim); }
+.sec { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--sec-ink);
+       border-top: 1px solid var(--line); padding-top: 14px; margin: 12px 0 4px; display: flex; align-items: center; gap: 8px; }
+.sec small { font-size: 11px; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--dim); }
+.sec i { font-style: normal; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px;
+         border: 1px solid var(--line-2); background: var(--panel); color: var(--muted); letter-spacing: 0; }
+.sec i.done { background: var(--ok-bg); border-color: var(--ok-line); color: var(--ok-ink); }
+.privacy { margin: 16px 0 8px; border: 1px solid var(--accent-line); background: var(--accent-bg); border-radius: 8px; padding: 10px 12px;
+           font-size: 12px; line-height: 1.5; color: var(--accent-deep); }
+.privacy b { display: block; font-size: 13px; margin-bottom: 2px; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 4px 0; font-size: 12px; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; font-family: var(--mono); color: var(--fg); overflow-wrap: anywhere; }
@@ -64,7 +117,7 @@ section[data-testid="stSidebar"] .brand { margin: 0 0 6px; }
 /* ---------- panels ---------- */
 div[data-testid="stVerticalBlockBorderWrapper"], div[data-testid="stVerticalBlock"][class*="st-key"] { border-color: var(--line); }
 .panel-head { margin-bottom: 6px; }
-.panel-head h3 { font-size: 14px; font-weight: 600; color: var(--fg); display: flex; gap: 8px; align-items: center; }
+.panel-head h3 { font-size: 16px; font-weight: 600; color: var(--fg); display: flex; gap: 8px; align-items: center; }
 .panel-head p { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
 .vp-head { display: flex; justify-content: space-between; font: 12px var(--mono); color: var(--muted); margin-bottom: 4px; }
 .fh { font-size: 14px; font-weight: 600; margin-bottom: 4px; color: var(--fg); }
@@ -87,18 +140,23 @@ h4.sub { font-size: 12px; color: var(--muted); margin: 10px 0 4px; font-weight: 
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
 
 /* ---------- KPIs ---------- */
-.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 6px 0 12px; }
-.kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; display: grid; gap: 2px; }
-.kpi .k { font: 11px var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
-.kpi .v { font-size: 26px; font-weight: 600; color: var(--fg); font-variant-numeric: tabular-nums; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 8px 0 8px; }
+.kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 18px; display: grid; gap: 3px; }
+.kpi.bad { box-shadow: inset 0 3px 0 var(--bad); }
+.kpi.bad .s { color: var(--bad); font-weight: 500; }
+.kpi .k { font-size: 13px; color: var(--muted); }
+.kpi .v { font-size: 28px; font-weight: 700; letter-spacing: -0.01em; color: var(--fg); font-variant-numeric: tabular-nums; }
+.more { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 13px; color: var(--muted); margin: 0 0 14px; }
+.more b { color: var(--fg); }
+.more .src { color: var(--dim); font-size: 12px; margin-left: auto; }
 .kpi .v small { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 4px; }
 .kpi .s { font-size: 12px; color: var(--muted); }
 .kpis.small .v { font-size: 20px; }
 @media (max-width: 900px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .pill { display: inline-block; font: 11px var(--mono); padding: 1px 8px; border-radius: 10px; border: 1px solid var(--line-2); color: var(--muted); white-space: nowrap; }
-.pill.ok { border-color: var(--ok); color: var(--ok); }
-.pill.bad { border-color: var(--bad); color: var(--bad); }
+.pill.ok { border-color: var(--ok-line); background: var(--ok-bg); color: var(--ok-ink); }
+.pill.bad { border-color: var(--bad-line); background: var(--bad-fill); color: var(--bad-ink); }
 .pill.na { color: var(--dim); }
 
 /* ---------- tables ---------- */
@@ -135,7 +193,7 @@ table.m td small { color: var(--muted); }
 .rc-sub, .rc-src { font-size: 11.5px; color: var(--muted); }
 .rc-src { color: var(--dim); }
 .cbar { position: relative; height: 8px; background: var(--line); border-radius: 4px; margin-top: 6px; }
-.cbar .zone { position: absolute; top: 0; bottom: 0; background: rgba(239, 107, 107, 0.28); border-radius: 4px; }
+.cbar .zone { position: absolute; top: 0; bottom: 0; background: var(--zone); border-radius: 4px; }
 .cbar .cut { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--fg); }
 .cbar .val { position: absolute; top: -4px; width: 12px; height: 16px; margin-left: -6px; border-radius: 3px; background: var(--accent); border: 2px solid var(--panel); }
 .cbar-ax { display: flex; justify-content: space-between; font: 10.5px var(--mono); color: var(--dim); }
@@ -151,11 +209,32 @@ table.m td small { color: var(--muted); }
 /* column-reverse with newest-first markup: opens scrolled to the newest line */
 .term { background: var(--term-bg); border: 1px solid var(--line); border-radius: 6px; font: 11.5px/1.5 var(--mono); padding: 8px 10px;
         height: 420px; overflow: auto; display: flex; flex-direction: column-reverse; }
-.tl { display: grid; grid-template-columns: 92px 30px 62px 110px 1fr; gap: 8px; color: #b8c4d2; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tl { display: grid; grid-template-columns: 92px 30px 62px 110px 1fr; gap: 8px; color: #cbd5e1; white-space: pre-wrap; overflow-wrap: anywhere; }
 .tt, .to { color: #5d6d80; }
 .tg { color: #8fb4d8; }
-.lv-debug .tv { color: #5d6d80; } .lv-info .tv { color: #8fb4d8; } .lv-success .tv { color: var(--ok); }
-.lv-warn .tv, .lv-warn .tm { color: var(--warn); } .lv-error .tv, .lv-error .tm { color: var(--bad); }
+.lv-debug .tv { color: #5d6d80; } .lv-info .tv { color: #8fb4d8; }
+.lv-success .tv { color: #4ade80; }
+.lv-warn .tv, .lv-warn .tm { color: #fbbf24; } .lv-error .tv, .lv-error .tm { color: #f87171; }
 .term-empty { color: #5d6d80; }
 
 .footer { color: var(--dim); font-size: 11.5px; border-top: 1px solid var(--line); margin-top: 1.4rem; padding-top: .6rem; }
+
+/* ---------- tabs ---------- */
+/* The two developer tabs (Transmitted JSON, Run log) sit apart at the right, in a quieter style */
+[role="tablist"] [data-testid="stTab"]:nth-child(5) { margin-left: auto; }
+[role="tablist"] [data-testid="stTab"]:nth-child(n+5) p { font-size: 13px; color: var(--dim); }
+[role="tablist"] [data-testid="stTab"] p { font-size: 15px; }
+
+/* Streamlit's own paragraph style is more specific than a bare class: restate the small text styles */
+[data-testid="stMarkdownContainer"] p.status { font: 13px/1.45 var(--sans); color: var(--muted); }
+[data-testid="stMarkdownContainer"] p.status.err { color: var(--bad); }
+[data-testid="stMarkdownContainer"] p.status.warn { color: var(--warn); }
+[data-testid="stMarkdownContainer"] p.note { font-size: 12.5px; line-height: 1.45; color: var(--dim); }
+[data-testid="stMarkdownContainer"] p.note.warn { color: var(--warn); }
+[data-testid="stMarkdownContainer"] p.more { font-size: 13px; }
+[data-testid="stMarkdownContainer"] p.more b { font: 600 13px var(--sans); font-variant-numeric: tabular-nums; }
+[data-testid="stMarkdownContainer"] p.more .src { font-size: 12px; }
+[data-testid="stMarkdownContainer"] p.disc { font-size: 12px; line-height: 1.5; color: var(--dim); }
+[data-testid="stMarkdownContainer"] p.empty { font-size: 14px; color: var(--muted); }
+[data-testid="stMarkdownContainer"] .ev-list li, [data-testid="stMarkdownContainer"] .comp-list li { font-size: 13px; margin: 0; padding: 0; }
+[data-testid="stMarkdownContainer"] p.banner { font-size: 13px; }
