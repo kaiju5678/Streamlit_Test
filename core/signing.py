@@ -61,7 +61,7 @@ def sign(payload: dict, report: dict, reader: str, remarks: str, case_ref: str, 
     if biomarkers.violations(payload) or not report.get("narrative"):
         raise ValueError("Missing report or metrics.")
     if synthetic:
-        raise ValueError("The synthetic sample cannot be signed.")
+        raise ValueError("Sample studies can't be signed.")
 
     signed_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     # What gets signed: metrics, narrative, its provenance, the reader's remarks and identity.

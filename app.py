@@ -48,8 +48,8 @@ def steps(a: dict) -> tuple[list[tuple[str, str]], str]:
         1: ("Segmentation is running. You can keep scrolling through the slices meanwhile." if ss.job else
             "Run segmentation in the sidebar, or open a mask you already have."),
         2: "Scroll to the L3 vertebra and press <b>Set L3 here</b> in the sidebar.",
-        3: ("The measurements changed after the report was written. Generate it again." if stale else
-            "Generate the report. Only the eight numbers on the <b>Transmitted JSON</b> tab are sent."),
+        3: ("The measurements changed after the report was written. Create it again." if stale else
+            "Create the report. Only the eight numbers on the <b>Transmitted JSON</b> tab are sent."),
         4: ("This is the sample study, so it cannot be signed. Open a real CT to sign a report." if v and v["sample"] else
             "Review the draft on the <b>AI report</b> tab, then sign it."),
         None: "Report signed. Export it as PDF or CSV from the Overview.",
@@ -114,7 +114,7 @@ else:
     header(a)
 
 if a["vol"] is None:
-    st.info("Open a CT volume to begin.")
+    st.info("Open a CT study in the sidebar to start.")
     st.stop()
 
 # Every tab is drawn on each run and the browser switches between them, so changing tab needs no rerun and the 3D model

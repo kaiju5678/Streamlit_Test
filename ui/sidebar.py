@@ -55,6 +55,7 @@ def render() -> None:
             st.button("Light" if ss.dark else "Dark", key="theme_btn", on_click=S.cb_theme,
                       icon=":material/light_mode:" if ss.dark else ":material/dark_mode:",
                       help="Switch to the light theme" if ss.dark else "Switch to the dark theme")
+        live.theme_memory()
 
         # ---- 1 · Data input
         sec("Data input", 1, v is not None)
@@ -83,7 +84,7 @@ def render() -> None:
                   type="secondary" if ss.mask is not None else "primary", icon=":material/play_arrow:",
                   on_click=S.cb_segment, disabled=not can_segment, width="stretch")
         if not seg_client.configured():
-            note = "No inference server configured (INFERENCE_URL)."
+            note = "Segmentation server not set (INFERENCE_URL in .env)."
         elif health is None:
             note = (f"Segmentation server is not running ({config.INFERENCE_BASE}). Start it with "
                     "<span class='mono'>python server_segment/server.py</span>, or open a mask you already have.")
@@ -144,7 +145,7 @@ def render() -> None:
                     f"{' · not reachable' if why else ' · online' if on else ''}</p>"
                     + (f"<p class='note warn' title='{html.escape(why)}'>Only reachable from the lab network. "
                        "Reports will use the rule-based draft for now.</p>" if why else ""), unsafe_allow_html=True)
-        st.button("Generate AI report" if on else "Generate draft report", on_click=S.cb_generate, icon=":material/description:",
+        st.button("Create AI report" if on else "Create draft report", on_click=S.cb_generate, icon=":material/description:",
                   type="primary" if ss.mask is not None and ss.report is None else "secondary",
                   disabled=v is None, width="stretch")
 
@@ -161,7 +162,7 @@ def render() -> None:
 def device_panel() -> None:
     d = device_status()
     if not d.get("configured"):
-        st.markdown("<p class='note'>No inference server configured.</p>", unsafe_allow_html=True)
+        st.markdown("<p class='note'>Segmentation server not set.</p>", unsafe_allow_html=True)
         return
     if not d.get("online"):
         st.markdown(f"<p class='status' title='{html.escape(d.get('error') or '')}'><span class='led mid'></span>"

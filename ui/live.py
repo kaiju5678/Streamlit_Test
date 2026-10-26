@@ -652,6 +652,27 @@ export default function (component) {
 }
 """
 
+# ================================================================= theme memory
+# The theme choice survives a page reload: kept in this browser's localStorage (a UI preference, no patient data).
+# On the first render of a page load the stored choice is sent back if it differs from ss.dark; after that every
+# render stores ss.dark.
+THEME_JS = r"""
+const KEY = 'bodycomp:theme';
+export default function (component) {
+  const { data, setTriggerValue } = component;
+  const want = data.dark ? 'dark' : 'light';
+  try {
+    if (!window.__bcThemeRead) {
+      window.__bcThemeRead = true;
+      const stored = window.localStorage.getItem(KEY);
+      if ((stored === 'dark' || stored === 'light') && stored !== want) { setTriggerValue('stored', stored); return; }
+    }
+    window.localStorage.setItem(KEY, want);
+  } catch (e) { /* storage blocked (private window): the theme just resets on reload */ }
+}
+"""
+
+_theme = st.components.v2.component("bodycomp_theme_memory", js=THEME_JS)
 _viewer = st.components.v2.component("bodycomp_slice_viewer", css=VIEWER_CSS, js=VIEWER_JS)
 _sliders = st.components.v2.component("bodycomp_live_sliders", css=SLIDERS_CSS, js=SLIDERS_JS)
 _files = st.components.v2.component("bodycomp_file_buttons", html=FILES_HTML, css=FILES_CSS, js=FILES_JS)
@@ -710,6 +731,12 @@ def _once(sid: str | None, payload):
 def _value(key: str, name: str):
     res = ss.get(key)
     return res.get(name) if isinstance(res, dict) else getattr(res, name, None)
+
+
+def _on_theme(key: str) -> None:
+    stored = _value(key, "stored")
+    if stored in ("dark", "light"):
+        ss.dark = stored == "dark"
 
 
 def _on_cur(key: str) -> None:
@@ -795,6 +822,10 @@ def sliders(v: dict) -> None:
 def file_buttons(*, busy: bool, has_ct: bool, dicom: bool) -> None:
     _files(key="file_buttons", data={"busy": busy, "has_ct": has_ct, "dicom": dicom},
            on_action_change=lambda: _on_action("file_buttons"))
+
+
+def theme_memory() -> None:
+    _theme(key="theme_memory", data={"dark": ss.dark}, on_stored_change=lambda: _on_theme("theme_memory"))
 
 
 def window_presets() -> None:

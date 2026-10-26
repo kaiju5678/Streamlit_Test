@@ -439,7 +439,7 @@ def finish_job() -> None:
         ss.report = ss.signature = None
         status(f"Segmentation complete. L3 set automatically at slice {k + 1}; please confirm it." if k is not None
                else "Segmentation complete. Check the mask before setting L3.")
-        log("SUCCESS", "INFERENCE", f"mask received in {secs:.1f} s (run {run_id})")
+        log("SUCCESS", "INFERENCE", f"mask back after {secs:.1f} s · run {run_id}")
     except Exception as e:  # noqa: BLE001
         status(str(e), error=True)
         log("ERROR", "INFERENCE", str(e))
@@ -510,14 +510,14 @@ def _report() -> None:
         except biomarkers.PayloadBlocked as e:
             reason = str(e)
             g = rules(reason)
-            log("ERROR", "PHI-GATE", f"{reason}; nothing was sent, rule-based draft written instead")
+            log("ERROR", "PHI-GATE", f"{reason}; nothing was sent, used the rule-based draft instead")
         except Exception as e:  # noqa: BLE001  keep the workflow moving
             reason = str(e)
             g = rules(reason)
-            log("WARN", "REPORT", f"{config.LLM_MODEL} failed ({reason[:200]}); rule-based draft written instead")
+            log("WARN", "REPORT", f"{config.LLM_MODEL} failed ({reason[:200]}); used the rule-based draft instead")
     else:
         g = rules()
-        log("INFO", "REPORT", "rule-based draft written (no language model configured)")
+        log("INFO", "REPORT", "no language model set up; used the rule-based draft")
     ss.report = {**g, "payloadKey": key, "edited": False}
     ss.editing = False
     status("Model unavailable; rule-based draft ready for review." if g.get("fallbackReason") else "Draft report ready for review.")

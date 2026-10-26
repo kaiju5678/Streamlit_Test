@@ -72,7 +72,8 @@ html, body, .stApp { font-family: var(--sans); }
 @media (max-width: 1100px) { [data-testid="stMarkdownContainer"] .steps ol { flex-wrap: wrap; } .steps li.bar { display: none; } }
 
 /* ---------- sidebar ---------- */
-.st-key-bc_uploads { display: none !important; }   /* opened by the file buttons (ui/live.py) */
+.st-key-bc_uploads { display: none !important; }
+.st-key-theme_memory { display: none !important; }   /* stores the theme choice (ui/live.py), nothing to show */   /* opened by the file buttons (ui/live.py) */
 section[data-testid="stSidebar"] { border-right: 1px solid var(--line); min-width: 340px; }
 /* Fixed sidebar: no drag-to-resize, no collapse/expand arrows (always open; see initial_sidebar_state in app.py) */
 section[data-testid="stSidebar"] { width: 340px !important; max-width: 340px !important; transform: none !important; }

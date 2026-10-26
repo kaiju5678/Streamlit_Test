@@ -123,10 +123,10 @@ def overview(a: dict) -> None:
     # Each row sits in an "eqrow" container: assets/style.css stretches both boxes of the row to the same height
     c1, c2 = st.container(key="eqrow_ov_view").columns(2, gap="medium")
     with c1.container(border=True):
-        panel_head("Axial slice with segmentation", "Wheel or slider to change slice · click to move the crosshair")
+        panel_head("Axial view · tissue overlay", "Wheel or slider to change slice · click to move the crosshair")
         viewport(a, "axial", "ov_axial", OV_VIEW_H, checks=True)
     with c2.container(border=True):
-        panel_head("3D model", "Surface of each label from the segmentation mask" if mask is not None
+        panel_head("3D model", "One surface per tissue, built from the mask" if mask is not None
                    else "Body surface and bone from the CT · tissue surfaces appear after segmentation")
         # the 2D box also has a slider row under its image, so the 3D stage is that much taller to line up
         live.mesh(a, OV_VIEW_H + 30)
@@ -137,25 +137,25 @@ def overview(a: dict) -> None:
         if rep:
             sub = (f"{rep['model']} · {rep['latencyMs'] / 1000:.1f} s · {rep['generatedAt'][:19].replace('T', ' ')}" if rep["source"] == "llm"
                    else "Rule-based draft · the model failed, see AI report" if rep.get("fallbackReason")
-                   else "Rule-based draft · no language model configured")
+                   else "Rule-based draft (no language model set up)")
         else:
-            sub = "No draft yet"
+            sub = "No report yet"
         badge = "<span class='pill ok'>Signed</span>" if a["signature"] else "<span class='pill na'>Draft</span>" if rep else ""
         md(f"<div class='panel-head'><h3>Assessment {badge}</h3><p>{h(sub)}</p></div>")
         if rep:
             n = rep["narrative"]
             if rep["payloadKey"] != a["payload_key"]:
-                md("<p class='banner warn'>Metrics changed after this draft was written. Regenerate before signing.</p>")
+                md("<p class='banner warn'>The numbers have changed since this draft was made. Create it again before signing.</p>")
             out = f"<div class='prose'><p>{h(n['summary'])}</p>"
             if n["lifestyle"]:
                 out += "<h4>Lifestyle considerations</h4><ul>" + "".join(f"<li>{h(r)}</li>" for r in n["lifestyle"]) + "</ul>"
-            md(out + "<p class='disc'>Draft for the reading physician. Review and sign it on the AI report tab.</p></div>")
+            md(out + "<p class='disc'>This is a draft. A physician reviews and signs it on the AI report tab.</p></div>")
         else:
-            md(f"<p class='empty'>{'Generate a draft from the eight body-composition biomarkers. Only those eight numbers are sent.' if a['payload'] else 'Load a segmentation first.'}</p>")
-            st.button("Generate AI report" if llm_client.configured() else "Generate rule-based draft", type="primary",
+            md(f"<p class='empty'>{'Create a draft from the eight body-composition biomarkers. Only those eight numbers are sent.' if a['payload'] else 'Load a segmentation first.'}</p>")
+            st.button("Create AI report" if llm_client.configured() else "Create rule-based draft", type="primary",
                       on_click=S.cb_generate, key="ov_gen", disabled=a["payload"] is None)
     with c2.container(border=True):
-        panel_head("Tissue composition", "Volumes over the segmented range, and L3 indices against the configured references")
+        panel_head("Tissue composition", "Tissue volumes across the scan, and L3 indices compared with published cut-offs")
         if rv and tissue:
             parts = role_parts(rv)
             d1, d2 = st.columns([2, 3], vertical_alignment="center")
@@ -165,7 +165,7 @@ def overview(a: dict) -> None:
                 f"<em>{f1(p['value'] / tissue * 100)}%</em><span class='comp-bar'><span style='width:{p['value'] / tissue * 100:.1f}%;"
                 f"background:{p['color']}'></span></span></li>" for p in parts) + "</ul>", unsafe_allow_html=True)
         else:
-            md("<p class='empty'>No segmentation loaded.</p>")
+            md("<p class='empty'>No mask yet.</p>")
         rows = indices(a)
         if rows:
             md("<table class='m idx'><thead><tr><th>L3 index</th><th>Value</th><th>Reference</th><th>Status</th></tr></thead><tbody>"
@@ -173,9 +173,9 @@ def overview(a: dict) -> None:
                          + (f"<span class='pill na'>{'no reference' if r['ref'] == '–' else 'needs patient data'}</span>" if r["flag"] is None
                             else pill(r["flag"], r["yes"], r["no"])) + "</td></tr>" for r in rows) + "</tbody></table>")
         e1, e2 = st.columns(2)
-        e1.download_button("Export report (HTML / PDF)", data=report_html(a) if rep else "", file_name=f"{ss.ref}_report.html",
+        e1.download_button("Download report · HTML/PDF", data=report_html(a) if rep else "", file_name=f"{ss.ref}_report.html",
                            mime="text/html", disabled=not rep, key="ov_dl_rep", width="stretch", on_click="ignore")
-        e2.download_button("Export metrics (CSV)", data=csv_text(a) if mask else "", file_name=f"{ss.ref}_metrics.csv",
+        e2.download_button("Download metrics · CSV", data=csv_text(a) if mask else "", file_name=f"{ss.ref}_metrics.csv",
                            mime="text/csv", disabled=not mask, key="ov_dl_csv", width="stretch", on_click="ignore")
 
 
@@ -228,7 +228,7 @@ def info_panel(a: dict) -> None:
 def metrics(a: dict) -> None:
     v, mask, labels, stats, l3, cur = a["vol"], a["mask"], a["labels"], a["stats"], a["l3"], a["cur"]
     if not mask or not stats:
-        md("<p class='empty'>Load a CT and a segmentation to see per-label metrics.</p>")
+        md("<p class='empty'>Open a CT and its mask to see the numbers for each label.</p>")
         return
     sp = v["spacing"]
     px = sp[0] * sp[1] / 100
@@ -237,7 +237,7 @@ def metrics(a: dict) -> None:
     with st.container(border=True):
         c1, c2 = st.columns([4, 1], vertical_alignment="center")
         with c1:
-            panel_head("Per-label metrics", f"Volume and attenuation over the whole mask; areas on the current slice ({cur['k'] + 1})"
+            panel_head("Measurements per label", f"Volume and attenuation over the whole mask; areas on the current slice ({cur['k'] + 1})"
                                             f" and at L3{f' ({l3 + 1})' if l3 is not None else ''}")
         c2.download_button("Export CSV", csv_text(a), file_name=f"{ss.ref}_metrics.csv", mime="text/csv", key="mt_csv",
                            on_click="ignore", width="stretch")
@@ -275,7 +275,7 @@ def metrics(a: dict) -> None:
                               hide_index=True, width="stretch", column_config={"Value": st.column_config.NumberColumn(format="%.2f")})
 
     with st.container(border=True):
-        panel_head("Cross-sectional area by axial slice", "Click a point to jump the viewers to that slice")
+        panel_head("Tissue area per slice", "Click the curve to open that slice in the viewers")
         series = [{"name": n, "color": ROLE_CSS[r], "values": an.role_profile(stats, labels, sp, r)}
                   for n, r in (("Muscle", "muscle"), ("Visceral fat", "vat"), ("Subcutaneous fat", "sat"), ("Intermuscular fat", "imat"))]
         series = [s for s in series if s["values"].any()]
@@ -286,7 +286,7 @@ def metrics(a: dict) -> None:
             st.plotly_chart(render.line_chart(series, "cm²", "Axial slice", marks, ss.dark), key="mt_profile",
                             on_select=lambda: S.cb_pick_slice("mt_profile"), selection_mode="points",
                             config={"displayModeBar": False, "scrollZoom": False, "doubleClick": False}, theme=None)
-            with st.expander("Show as table"):
+            with st.expander("View the numbers as a table"):
                 df = pd.DataFrame({"Slice": np.arange(1, v["shape"][2] + 1), "z mm": np.arange(v["shape"][2]) * sp[2],
                                    **{f"{s['name']} cm²": s["values"] for s in series}})
                 st.dataframe(df, hide_index=True, width="stretch", height=320,
@@ -316,7 +316,7 @@ def cutoff_bar(value, cutoff, lo, hi, flag_when, unit) -> str:
 
 def risk_card(title, metric, value, unit, cutoff, flag, flag_when, yes, no, lo, hi, source) -> str:
     cls = "bad" if flag else "ok" if flag is False else ""
-    sub = f"{metric} · cut-off {'<' if flag_when == 'below' else '>'} {cutoff}" if cutoff is not None else f"{metric} · needs sex, height, weight"
+    sub = f"{metric} · cut-off {'<' if flag_when == 'below' else '>'} {cutoff}" if cutoff is not None else f"{metric} · enter sex, height and weight for a cut-off"
     return (f"<div class='riskcard {cls}'><div class='rc-head'><b>{title}</b>{pill(flag, yes, no)}</div>"
             f"<div class='rc-val'>{f1(value)} <small>{unit}</small></div><div class='rc-sub'>{sub}</div>"
             f"{cutoff_bar(value, cutoff, lo, hi, flag_when, unit)}{f'<div class=rc-src>{h(source)}</div>' if source else ''}</div>")
@@ -328,15 +328,15 @@ def report(a: dict) -> None:
     signed = bool(sig)
 
     c = st.columns([2, 1.3, 2, 3], vertical_alignment="center")
-    c[0].button("Regenerate" if rep else ("Generate AI report" if llm_client.configured() else "Generate rule-based draft"),
+    c[0].button("Create again" if rep else ("Create AI report" if llm_client.configured() else "Create rule-based draft"),
                 type="primary", on_click=S.cb_generate, disabled=not a["payload"] or signed, key="rp_gen", width="stretch")
     c[1].button("Done editing" if ss.editing else "Edit text", on_click=S.cb_toggle_edit, disabled=not rep or signed,
                 key="rp_edit", width="stretch")
-    c[2].download_button("Print / save PDF (HTML)", data=report_html(a) if rep else "", file_name=f"{ss.ref}_report.html",
+    c[2].download_button("Print or save as PDF", data=report_html(a) if rep else "", file_name=f"{ss.ref}_report.html",
                          mime="text/html", disabled=not rep, key="rp_dl", on_click="ignore", width="stretch",
                          help="Open the downloaded page and print it to PDF")
     badge = (f"<span class='pill ok'>Signed by {h(sig['reader'])}</span>" if signed
-             else "<span class='pill na'>Draft · pending sign-off</span>" if rep else "")
+             else "<span class='pill na'>Draft · not signed yet</span>" if rep else "")
     c[3].markdown(f"<div style='text-align:right'>{badge}</div>", unsafe_allow_html=True)
 
     run = a["run"]
@@ -359,27 +359,27 @@ def report(a: dict) -> None:
     if ev:
         md("<section class='risk'>"
            + risk_card("Low muscle mass", "Skeletal muscle index", ev["smi"], "cm²/m²", ev["smi_cut"], ev["low_muscle"], "below",
-                       "Below cut-off", "Above cut-off", 20, 80, (an.ref_smi(p) or {}).get("source"))
+                       "Below threshold", "Above threshold", 20, 80, (an.ref_smi(p) or {}).get("source"))
            + risk_card("Myosteatosis", "Mean muscle attenuation", ev["muscle_hu"], "HU", ev["hu_cut"], ev["myosteatosis"], "below",
-                       "Below cut-off", "Above cut-off", 0, 70, (an.ref_smra(p) or {}).get("source"))
+                       "Below threshold", "Above threshold", 0, 70, (an.ref_smra(p) or {}).get("source"))
            + risk_card("Visceral obesity", "Visceral fat area", ev["vat"], "cm²", ev["vat_cut"], ev["visceral_obesity"], "above",
-                       "Above cut-off", "Below cut-off", 0, 350, (an.ref_vat_area(p) or {}).get("source"))
+                       "Above threshold", "Below threshold", 0, 350, (an.ref_vat_area(p) or {}).get("source"))
            + "</section>")
     else:
-        md("<p class='banner'>Load a segmentation and set the L3 slice to compute the indices.</p>")
+        md("<p class='banner'>The indices need a mask and the L3 slice. Segment the CT, then set L3 in the sidebar.</p>")
 
     main, side = st.columns([3, 2], gap="medium")
     with main:
         if not rep:
             with st.container(border=True):
-                md(f"<p class='empty'>{f'Generate a draft with {h(config.LLM_MODEL)}. Only the de-identified numbers shown on the Transmitted JSON tab are sent.' if llm_client.configured() else 'No language model is configured (LLM_URL). A rule-based draft can be written from the measured values instead.'}</p>")
+                md(f"<p class='empty'>{f'Create a draft with {h(config.LLM_MODEL)}. Only the de-identified numbers shown on the Transmitted JSON tab are sent.' if llm_client.configured() else 'No language model is configured (LLM_URL). A rule-based draft can be written from the measured values instead.'}</p>")
         else:
             n = rep["narrative"]
             if rep.get("fallbackReason"):
                 md(f"<p class='banner warn'>{h(config.LLM_MODEL)} did not return a usable draft, so this is the rule-based draft instead. "
                    f"Reason: <span class='mono'>{h(rep['fallbackReason'][:240])}</span>. Choose Regenerate to try the model again.</p>")
             if stale and not signed:
-                md("<p class='banner warn'>The metrics changed after this draft was written. Regenerate before signing.</p>")
+                md("<p class='banner warn'>The numbers have changed since this draft was made. Create it again before signing.</p>")
             if rep["unverifiedNumbers"]:
                 md(f"<p class='banner warn'>These numbers in the draft do not match any measured value: "
                    f"<b class='mono'>{h(', '.join(rep['unverifiedNumbers']))}</b>. Check or remove them before signing.</p>")
@@ -410,7 +410,7 @@ def report(a: dict) -> None:
 
     with side:
         with st.container(border=True):
-            panel_head("Key anatomical evidence", f"L3 · axial slice {l3 + 1} of {v['shape'][2]}" if l3 is not None else "L3 not set")
+            panel_head("L3 slice used for the indices", f"Axial slice {l3 + 1} / {v['shape'][2]}" if l3 is not None else "L3 not set")
             if l3 is not None:
                 st.image(l3_snapshot(a), caption=f"W {a['wl']['w']} / L {a['wl']['l']} · {'mask overlay' if mask else 'no mask'}",
                          width="stretch")
@@ -422,7 +422,7 @@ def report(a: dict) -> None:
                         f"<em>{mean_hu(l3s, L)} HU</em></li>"
                         for L, d in labels.items()) + "</ul>")
         with st.container(border=True):
-            panel_head("Physician attestation", "Signed and stored on the server" if signed else "Review the draft, then sign")
+            panel_head("Physician attestation", "Signed · saved on this computer" if signed else "Check the draft before signing")
             if signed:
                 md("<dl class='kv sig'>"
                    f"<dt>Reader</dt><dd>{h(sig['reader'])}</dd><dt>Login</dt><dd>{h(sig['authenticatedUser'] or 'not provided by proxy')}</dd>"
@@ -433,15 +433,15 @@ def report(a: dict) -> None:
                 st.text_input("Reading physician", key="reader", placeholder="Full name and credentials")
                 st.text_area("Remarks or corrections", key="remarks", height=100, placeholder="Optional addendum stored with the signed report")
                 if v["sample"]:
-                    md("<p class='note warn'>The synthetic sample cannot be signed.</p>")
+                    md("<p class='note warn'>Sample studies can't be signed.</p>")
                 reader = (ss.get("reader") or "").strip()
                 if ss.confirming:
                     md(f"<div class='confirm'>Sign this report as <b>{h(reader)}</b>? It cannot be changed afterwards.</div>")
                     b1, b2 = st.columns(2)
-                    b1.button("Confirm and sign", type="primary", on_click=S.cb_sign, args=(a["payload"],), width="stretch")
+                    b1.button("Yes, sign this report", type="primary", on_click=S.cb_sign, args=(a["payload"],), width="stretch")
                     b2.button("Cancel", on_click=lambda: ss.update(confirming=False), width="stretch")
                 else:
-                    st.button("Sign and approve", type="primary", on_click=lambda: ss.update(confirming=True), width="stretch",
+                    st.button("Sign report", type="primary", on_click=lambda: ss.update(confirming=True), width="stretch",
                               disabled=not rep or stale or not reader or v["sample"])
                 if ss.sign_error:
                     md(f"<p class='status err'>{h(ss.sign_error)}</p>")
@@ -541,16 +541,16 @@ def transmitted(a: dict) -> None:
        f"<p class='status'>Whitelist check passed: exactly the {len(biomarkers.FIELDS)} allowed fields, all numeric · "
        f"{len(json.dumps(pl).encode())} bytes · measured over {where}</p>")
     block("Biomarker payload (as sent)" if sent else "Biomarker payload",
-          f"Sent to {rep['model']} at {rep['generatedAt'][:19].replace('T', ' ')}" if sent else
-          ("Will be sent when you generate a report" if llm_client.configured() else "No language model configured; nothing is sent"),
+          f"{rep['model']} · sent {rep['generatedAt'][:19].replace('T', ' ')}" if sent else
+          ("Goes out only when you create a report" if llm_client.configured() else "No language model configured; nothing is sent"),
           pl, f"{ss.ref}_payload.json", "js_pl")
-    block("Derived indices (added in the prompt)", "Computed from the eight values only, so they add no information about the patient",
+    block("Derived indices (added in the prompt)", "Worked out from the eight numbers alone, so nothing new about the patient is added",
           (rep or {}).get("derived") or biomarkers.derived(pl), f"{ss.ref}_derived.json", "js_der")
     if rep and rep.get("request"):
-        block("Language model request", f"OpenAI-compatible chat completion · prompt SHA-256 {rep['promptSha256']}", rep["request"],
+        block("Request sent to the model", f"Chat completions API · prompt hash (SHA-256) {rep['promptSha256']}", rep["request"],
               f"{ss.ref}_llm_request.json", "js_req")
     if rep and rep.get("rawResponse"):
-        block("Raw model response", f"{rep['latencyMs']} ms", rep["rawResponse"], f"{ss.ref}_llm_response.txt", "js_raw")
+        block("Model reply (unedited)", f"{rep['latencyMs']} ms", rep["rawResponse"], f"{ss.ref}_llm_response.txt", "js_raw")
     if a["signature"]:
         block("Signature receipt", "Returned after signing", a["signature"], f"{ss.ref}_signature.json", "js_sig")
 
@@ -566,7 +566,7 @@ def runlog(a: dict) -> None:
         c1, c2 = st.columns([5, 1], vertical_alignment="center")
         with c1:
             panel_head("Segmentation run", f"{h(run['filename'])} · {run['model']} on {h(run['device'])} · started {run['started']}"
-                       if run else "No server run yet. Open a CT and choose Run segmentation.")
+                       if run else "Nothing has run on the server yet. Open a CT and press Run segmentation.")
         if run:
             c2.button("Refresh", key="rl_refresh", width="stretch",
                       on_click=lambda: ss.update(run=S.seg_client.run_record(run["id"]) or ss.run))
@@ -582,7 +582,7 @@ def runlog(a: dict) -> None:
             tput = f"{v['shape'][2] / infer:.2f}" if infer else "–"
             pm, pg, pc, pt, pw = peak("mem_used_mb"), peak("gpu_util"), peak("cpu_util"), peak("temp_c"), peak("power_w")
             md("<section class='kpis small'>"
-               f"<div class='kpi'><span class='k'>Total wall time</span><span class='v'>{run['wall_s']:.1f}<small>s</small></span>"
+               f"<div class='kpi'><span class='k'>Run time (total)</span><span class='v'>{run['wall_s']:.1f}<small>s</small></span>"
                f"<span class='s'>{' · '.join(f'{k} {val}s' for k, val in run['stages'].items()) or '–'}</span></div>"
                f"<div class='kpi'><span class='k'>Peak memory</span><span class='v'>{f'{pm / 1024:.1f}' if pm else '–'}"
                f"<small>{f'/ {mem_total / 1024:.1f} GB' if mem_total else 'GB'}</small></span><span class='s'>sampler: {run['sampler']}</span></div>"
@@ -619,7 +619,7 @@ def runlog(a: dict) -> None:
             has_gpu = any(s.get("gpu_util") is not None for s in samples)
             mem_total = next((s["mem_total_mb"] for s in samples if s.get("mem_total_mb")), None)
             c1, c2, c3 = st.columns(3)
-            c1.markdown("**Memory used (MB)**")
+            c1.markdown("**Memory (MB)**")
             c1.plotly_chart(render.area_chart(t, [s.get("mem_used_mb") for s in samples], "MB", ROLE_CSS["vat"], mem_total, ss.dark),
                             key="rl_mem", config={"displayModeBar": False}, theme=None)
             c2.markdown(f"**{'GPU' if has_gpu else 'CPU'} utilisation (%)**")

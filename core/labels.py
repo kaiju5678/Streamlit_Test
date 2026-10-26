@@ -61,7 +61,7 @@ def labels_for(counts: np.ndarray, key: str = "generic") -> dict[int, dict]:
 # Known label names (Mazurowski dataset.json, TotalSegmentator, ...) → display name and role.
 # Names are normalised first: lower case, spaces and hyphens → "_".
 NAME_ROLES = [
-    (r"^torso_fat$", "Torso fat (VAT proxy)", "vat"),
+    (r"^torso_fat$", "Trunk fat (stands in for VAT)", "vat"),
     (r"^(sat|s_?fat|subcutaneous(_adipose)?(_fat|_tissue)?)$", "Subcutaneous fat", "sat"),
     (r"^(vat|v_?fat|visceral(_adipose)?(_fat|_tissue)?)$", "Visceral fat", "vat"),
     (r"^(imat|m_?fat|muscle_fat|muscular_fat|intra_?muscular(_adipose)?(_fat|_tissue)?|inter_?muscular(_adipose)?(_fat|_tissue)?)$",
@@ -69,8 +69,8 @@ NAME_ROLES = [
     (r"^(skeletal_)?muscles?$", "Skeletal muscle", "muscle"),
     (r"^vertebrae_l3$", "L3 vertebra", "bone"),
     (r"^vertebrae_", "", "bone"),
-    (r"^muscle_hu_range$", "Muscle-range HU (demo)", "muscle"),
-    (r"^fat_hu_range$", "Fat-range HU (demo)", "vat"),
+    (r"^muscle_hu_range$", "Demo: muscle HU band", "muscle"),
+    (r"^fat_hu_range$", "Demo: fat HU band", "vat"),
 ]
 
 
