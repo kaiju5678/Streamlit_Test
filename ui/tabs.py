@@ -116,12 +116,10 @@ def overview(a: dict) -> None:
         panel_head("Axial slice with segmentation", "Wheel or slider to change slice · click to move the crosshair")
         viewport(a, "axial", "ov_axial", OV_VIEW_H, checks=True)
     with c2.container(border=True):
-        panel_head("3D model", "Surface of each label from the segmentation mask")
+        panel_head("3D model", "Surface of each label from the segmentation mask" if mask is not None
+                   else "Body surface and bone from the CT · tissue surfaces appear after segmentation")
         # the 2D box also has a slider row under its image, so the 3D stage is that much taller to line up
-        if mask is None:
-            md(f"<div class='mesh-empty' style='height:{OV_VIEW_H + 30}px'>No segmentation loaded.</div>")
-        else:
-            live.mesh(a, OV_VIEW_H + 30)
+        live.mesh(a, OV_VIEW_H + 30)
 
     c1, c2 = st.container(key="eqrow_ov_info").columns(2, gap="medium")
     rep = a["report"]

@@ -142,6 +142,7 @@ def area_chart(t: list, v: list, unit: str, color: str, vmax: float | None = Non
 
 
 MESH_STYLE = {  # display name, colour, opacity; drawn outside-in so the translucent shells sit over the solid parts
+    "skin": ("Body surface (CT)", "rgb(222,184,160)", 0.15),  # CT only, before a mask exists
     "sat": ("Subcutaneous fat", "rgb(240,198,96)", 0.13),
     # muscle and VAT see-through, so the skeleton shows inside (as in the three.js Mesh3D reference)
     "muscle": ("Skeletal muscle", "rgb(214,86,82)", 0.5),
@@ -202,15 +203,39 @@ def _skeleton(hu: np.ndarray, mask: np.ndarray, sp, bone_hu: float, exclude: np.
     return keep[lab]
 
 
-def build_meshes(mask: np.ndarray, labels: dict, spacing, max_voxels: int, hu: np.ndarray | None = None,
+def _ct_body(hu: np.ndarray) -> np.ndarray:
+    """Body from the CT alone: tissue above -500 HU, largest connected piece (drops the table and cushions), with the
+    air inside it (lungs, bowel gas) filled slice by slice so only the skin surface is drawn."""
+    from scipy import ndimage as ndi
+
+    b = hu > -500
+    lab, n = ndi.label(b)
+    if n == 0:
+        return b
+    size = np.bincount(lab.ravel())
+    size[0] = 0
+    b = lab == size.argmax()
+    for k in range(b.shape[2]):
+        b[:, :, k] = ndi.binary_fill_holes(b[:, :, k])
+    return b
+
+
+def build_meshes(mask: np.ndarray | None, labels: dict, spacing, max_voxels: int, hu: np.ndarray | None = None,
                  bone_hu: float = 250) -> list[dict]:
     """Surface of each tissue role from the mask, plus the skeleton from the CT (marching cubes on a downsampled grid).
-    Every group is built whatever its 2D visibility: the 3D view has its own on/off checkboxes."""
-    nx, ny, nz = mask.shape
+    Every group is built whatever its 2D visibility: the 3D view has its own on/off checkboxes.
+    Without a mask (CT just loaded, not segmented yet) the model is the body surface and the skeleton from the CT."""
+    if mask is None and hu is None:
+        return []
+    nx, ny, nz = (mask if mask is not None else hu).shape
     f = max(1, math.ceil(math.sqrt(nx * ny * nz / max_voxels)))
-    small = mask[::f, ::f, :]
     sp = (spacing[0] * f, spacing[1] * f, spacing[2])
-    groups: dict[str, list[int]] = {}
+    if mask is None:
+        small = _ct_body(hu[::f, ::f, :])
+        labels = {}
+    else:
+        small = mask[::f, ::f, :]
+    groups: dict[str, list[int]] = {"skin": []} if mask is None else {}
     for L, d in labels.items():
         key = "L3 vertebra" if "L3" in d["name"] and d["role"] == "bone" else d["role"]
         groups.setdefault(key, []).append(L)
@@ -224,6 +249,8 @@ def build_meshes(mask: np.ndarray, labels: dict, spacing, max_voxels: int, hu: n
     for key in sorted(groups, key=lambda k: list(MESH_STYLE).index(k) if k in MESH_STYLE else 99):
         if key == "skeleton":
             b = _skeleton(_block_max(hu, f), small, sp, bone_hu, np.isin(small, groups.get("L3 vertebra", [])))
+        elif key == "skin":
+            b = small
         else:
             b = np.isin(small, groups[key])
         if b.sum() < 20:

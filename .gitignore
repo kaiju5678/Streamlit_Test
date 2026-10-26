@@ -12,3 +12,6 @@ command.txt
 .claude
 CLAUDE.md
 server_segment/bench_out/
+server_segment/select_out/
+server_segment/fetch_totalseg.py
+server_segment/select_cases.py

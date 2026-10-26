@@ -540,6 +540,16 @@ export default function (component) {
   if (!meshes) { if (M.asked !== data.mesh_id) { M.asked = data.mesh_id; setTriggerValue('missing', data.mesh_id); } return; }
   const zOf = (k) => (k + 0.5) * data.sz;
   if (Date.now() - M.local > 1000) M.k = data.k;
+  // The view the user has now. Plotly writes a turn into layout.scene.camera only on the canvas mouseup, and every
+  // replot (restyle of a checkbox, react) puts the camera back to layout.scene.camera: hand it this one instead.
+  const liveCamera = () => {
+    const sc = M.div._fullLayout && M.div._fullLayout.scene && M.div._fullLayout.scene._scene;
+    return sc && sc.getCamera ? sc.getCamera() : null;
+  };
+  const restyle = (Plotly, update, idx) => {
+    const cam = liveCamera();
+    return cam ? Plotly.update(M.div, update, { 'scene.camera': cam }, idx) : Plotly.restyle(M.div, update, idx);
+  };
   // Move only the slice plane: Plotly.restyle would rebuild every tissue mesh (normals included) on each step.
   M.movePlane = (Plotly) => {
     const z = zOf(M.k), zs = [z, z, z, z], gd = M.div;
@@ -548,7 +558,7 @@ export default function (component) {
     if (obj && obj.update && sc.glplot) {
       gd.data[M.plane].z = zs; fd.z = zs;
       obj.update(fd); sc.glplot.redraw();
-    } else Plotly.restyle(gd, { z: [zs] }, [M.plane]);
+    } else restyle(Plotly, { z: [zs] }, [M.plane]);
   };
   const on = (name) => M.vis[name] !== false;
   // One checkbox per surface (and the slice plane) under the view; the state survives reruns of the app.
@@ -561,7 +571,7 @@ export default function (component) {
       lab.append(cb, document.createElement('i'), document.createTextNode(it.name));
       cb.addEventListener('change', () => {
         M.vis[it.name] = cb.checked; lab.classList.toggle('off', !cb.checked);
-        Plotly.restyle(M.div, { visible: cb.checked }, [idx]);
+        restyle(Plotly, { visible: cb.checked }, [idx]);
         if (idx === M.plane && cb.checked) M.movePlane(Plotly);
       });
       M.checks.appendChild(lab);
@@ -573,7 +583,7 @@ export default function (component) {
     all.addEventListener('click', () => {
       const v = !boxes.every((b) => b.checked);
       items.forEach((it, idx) => { M.vis[it.name] = v; boxes[idx].checked = v; boxes[idx].parentElement.classList.toggle('off', !v); });
-      Plotly.restyle(M.div, { visible: v }, items.map((_, idx) => idx));
+      restyle(Plotly, { visible: v }, items.map((_, idx) => idx));
       if (v) M.movePlane(Plotly);
       label();
     });
@@ -616,7 +626,7 @@ export default function (component) {
         // turntable: left-right drag spins about the body's long axis and up-down tilts, the head always stays up
         // (orbit tumbles freely and rolls the model sideways)
         scene: { xaxis: ax(0), yaxis: ax(1), zaxis: ax(2), aspectmode: 'manual', aspectratio: aspect, bgcolor: 'rgba(0,0,0,0)',
-                 camera: CAMERA, dragmode: 'turntable' },
+                 camera: liveCamera() || JSON.parse(JSON.stringify(CAMERA)), dragmode: 'turntable' },
       }, { displaylogo: false, responsive: true, displayModeBar: false });
       M.buildChecks(Plotly, traces.map((t) => ({ name: t.name, color: t.color })));
     } else M.movePlane(Plotly);
@@ -787,12 +797,14 @@ def window_presets() -> None:
 def mesh(a: dict, height: int = 420) -> None:
     v, mask = a["vol"], a["mask"]
     # not the 2D visibility: every surface is built and the 3D view has its own checkboxes
-    sig = (mask["id"], v["id"], config.BONE_HU, tuple((L, d["role"], "L3" in d["name"]) for L, d in a["labels"].items()))
+    # no mask yet: body surface and bone from the CT alone, replaced by the tissue surfaces once a mask arrives
+    labels = a["labels"] if mask else {}
+    sig = (mask["id"] if mask else None, v["id"], config.BONE_HU, tuple((L, d["role"], "L3" in d["name"]) for L, d in labels.items()))
     mesh_id = "mesh:" + hashlib.md5(repr(sig).encode()).hexdigest()[:12]
     cache = ss.setdefault("live_meshes", {})
     if mesh_id not in cache:
         with st.spinner("Building 3D surfaces…"):
-            meshes = render.build_meshes(mask["data"], a["labels"], v["spacing"], config.MESH_MAX_VOXELS,
+            meshes = render.build_meshes(mask["data"] if mask else None, labels, v["spacing"], config.MESH_MAX_VOXELS,
                                         hu=v["hu"], bone_hu=config.BONE_HU)
         cache.clear()
         cache[mesh_id] = [{"name": m["name"], "color": m["color"], "opacity": m["opacity"],
