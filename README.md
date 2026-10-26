@@ -128,3 +128,5 @@ server_segment/monitor.py  GPU/CPU telemetry ring buffer, run records
 server_segment/dicom_zip.py  DICOM .zip -> NIfTI
 server_segment/benchmark.py  TTA on/off x AMP-FP16/FP32 speed and agreement
 ```
+server_segment/select_cases.py  TotalSegmentator-dataset CTs that cover T12–L4 (cases.csv, selected.txt)
+server_segment/fetch_totalseg.py  only the T12/L3/L4 masks (~20 MB) or chosen CTs out of the 23.6 GB Zenodo zip
