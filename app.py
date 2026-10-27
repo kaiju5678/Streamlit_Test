@@ -16,7 +16,7 @@ import config
 from ui import sidebar, tabs
 from ui import state as S
 
-st.set_page_config(page_title="BodyComp · Body composition analysis", page_icon="🩻", layout="wide",
+st.set_page_config(page_title="BodyComp", page_icon="🩻", layout="wide",
                    initial_sidebar_state="expanded")
 S.init()
 ss = st.session_state

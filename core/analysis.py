@@ -83,6 +83,58 @@ def slice_stats(hu: np.ndarray, mask: np.ndarray, k: int) -> dict:
     return {"n": n, "sum": s}
 
 
+# ---------------------------------------------------------------- slice measurements (sidebar tools)
+# Points are plane coordinates (column axis, row axis) of a view: axial (i, j) at k, coronal (i, k) at j, sagittal (j, k) at i
+def _plane(vol: np.ndarray, view: str, sl: int) -> np.ndarray:
+    return {"axial": lambda: vol[:, :, sl], "coronal": lambda: vol[:, sl, :], "sagittal": lambda: vol[sl, :, :]}[view]()
+
+
+def _plane_spacing(view: str, spacing) -> tuple[float, float]:
+    return {"axial": (spacing[0], spacing[1]), "coronal": (spacing[0], spacing[2]), "sagittal": (spacing[1], spacing[2])}[view]
+
+
+def measure(kind: str, view: str, sl: int, pts: list, spacing, hu: np.ndarray, mask: np.ndarray | None, labels: dict) -> dict:
+    """One measurement on a slice: 'line' (2 points), 'roi' (centre, edge), 'angle' (3 points, vertex second), 'point'.
+
+    Returns the short text drawn on the slice and a detail line for the list."""
+    cs, rs = _plane_spacing(view, spacing)
+    mm = [(p[0] * cs, p[1] * rs) for p in pts]
+    plane = _plane(hu, view, sl)
+    lab = _plane(mask, view, sl) if mask is not None else None
+    name = lambda L: labels[L]["name"] if L in labels else "no label"
+    if kind == "line":
+        d = math.dist(*mm)
+        return {"text": f"{d:.1f} mm", "detail": ""}
+    if kind == "angle":
+        (ax, ay), (vx, vy), (cx, cy) = mm
+        a1, a2 = math.atan2(ay - vy, ax - vx), math.atan2(cy - vy, cx - vx)
+        deg = abs(math.degrees(a1 - a2)) % 360
+        deg = 360 - deg if deg > 180 else deg
+        return {"text": f"{deg:.1f}°", "detail": ""}
+    if kind == "point":
+        c, r = pts[0]
+        L = int(lab[c, r]) if lab is not None else 0
+        return {"text": f"{int(plane[c, r])} HU", "detail": name(L) if lab is not None else ""}
+    # roi: a circle in millimetres (an ellipse in voxels when the pixels are not square)
+    r_mm = math.dist(*mm)
+    (c0, r0) = pts[0]
+    n0, n1 = plane.shape
+    a0, a1 = max(0, int(c0 - r_mm / cs) - 1), min(n0, int(c0 + r_mm / cs) + 2)
+    b0, b1 = max(0, int(r0 - r_mm / rs) - 1), min(n1, int(r0 + r_mm / rs) + 2)
+    ii, jj = np.meshgrid((np.arange(a0, a1) - c0) * cs, (np.arange(b0, b1) - r0) * rs, indexing="ij")
+    inside = ii ** 2 + jj ** 2 <= r_mm ** 2
+    vals = plane[a0:a1, b0:b1][inside].astype(np.float64)
+    if not vals.size:
+        return {"text": "empty ROI", "detail": "", "r_mm": r_mm}
+    area = vals.size * cs * rs / 100
+    detail = f"min {int(vals.min())} · max {int(vals.max())} HU"
+    if lab is not None:
+        ls, cnt = np.unique(lab[a0:a1, b0:b1][inside], return_counts=True)
+        top = sorted(zip(cnt, ls), reverse=True)[:3]
+        detail += " · " + ", ".join(f"{c / vals.size * 100:.0f}% {name(int(L))}" for c, L in top)
+    return {"text": f"{vals.mean():.0f} ± {vals.std():.0f} HU · {area:.2f} cm²", "detail": detail, "r_mm": r_mm}
+
+
 def role_metrics(st: dict, labels: dict, spacing) -> dict:
     px_cm2 = spacing[0] * spacing[1] / 100
     acc = {r: [0.0, 0.0] for r in ROLES}
@@ -208,6 +260,8 @@ def unverified_numbers(text: str, pl: dict) -> list[str]:
             return
         if isinstance(o, (int, float)):
             known.append(float(o))
+        elif isinstance(o, str):  # e.g. the cut-offs quoted in myosteatosis_indication
+            known.extend(float(s) for s in re.findall(r"\d+(?:\.\d+)?", o))
         elif isinstance(o, list):
             for x in o:
                 walk(x)
@@ -217,8 +271,9 @@ def unverified_numbers(text: str, pl: dict) -> list[str]:
 
     walk(pl)
     out: list[str] = []
-    for s in re.findall(r"-?\d+(?:\.\d+)?", text):
-        x = float(s)
+    # "1,472,960.8" is one number; "T12" / "L3" are vertebra names, not values
+    for s in re.findall(r"(?<![A-Za-z\d.,])-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|(?<![A-Za-z\d.,])-?\d+(?:\.\d+)?", text):
+        x = float(s.replace(",", ""))
         if abs(x) <= 10 and x.is_integer():
             continue  # counts, list numbers, "L3", "6 months"
         ok = any(abs(k - x) <= max(0.051, abs(k) * 0.005) or abs(round(k) - x) < 0.01 for k in known)

@@ -22,7 +22,7 @@ import config
 from core import analysis as an
 from core import biomarkers, bodycomp
 from core import labels as lb
-from core import llm_client, nifti, phantom, render, seg_client, signing
+from core import llm_client, nifti, phantom, seg_client, signing
 
 ss = st.session_state
 
@@ -39,7 +39,7 @@ DEFAULTS = dict(
     meas=[], pending=None, meas_id=1, l3=None,
     status={"text": "", "error": False}, report=None, signature=None, run=None, body=None, seg_secs=None,
     weblog=[], job=None, action=None, editing=False, confirming=False, sign_error="",
-    mesh={}, hide_server=False, up_nonce=0, last_click={}, tab_default=None, tab_nonce=0,
+    mesh={}, hide_server=False, up_nonce=0, mask_conflict=None, last_click={}, tab_default=None, tab_nonce=0,
     p_sex="", p_age=None, p_h=None, p_w=None, dark=False,
 )
 
@@ -110,6 +110,16 @@ def read_label(raw: bytes, name: str) -> np.ndarray:
     return m
 
 
+class _MemFile:
+    """An uploaded file kept in memory while the user decides about it (the uploader resets after each upload)."""
+
+    def __init__(self, name: str, data: bytes):
+        self.name, self._data = name, data
+
+    def getvalue(self) -> bytes:
+        return self._data
+
+
 class _DiskFile:
     """A file found on disk, with the two methods of an uploaded file that load_results uses."""
 
@@ -142,8 +152,16 @@ def find_vertebrae(ct_name: str) -> list:
     return []
 
 
-def _fits(m: np.ndarray) -> bool:
-    return ss.vol is not None and not ss.vol["sample"] and m.shape == ss.vol["shape"]
+def _grid_match(m: dict) -> str:
+    """How a label volume (nifti.read) sits against the open CT: 'same', 'place' (same size, but a different position,
+    spacing or orientation in space) or 'size'."""
+    if ss.vol is None or m["data"].shape != ss.vol["shape"]:
+        return "size"
+    return "same" if np.allclose(m["affine"], ss.vol["affine"], atol=1e-2) else "place"
+
+
+def _grid_text(shape, spacing) -> str:
+    return f"{'×'.join(map(str, shape))} voxels at {' × '.join(f'{z:.2f}' for z in spacing)} mm"
 
 
 def load_mask_bytes(raw: bytes, name: str, source: str, key: str, names: dict | None = None) -> int | None:
@@ -199,10 +217,14 @@ def _safe(fn, tag: str, *args) -> None:
 
 
 # ---------------------------------------------------------------- callbacks (sidebar)
-def load_results(files: list) -> None:
+def load_results(files: list, mode: str = "check") -> None:
     """A finished segmentation: the tissue mask (labels 1–4), optionally with vertebrae_T12/L3/L4 from the same run
     (the output folder of predict_muscle_fat.py). L3 becomes label 50, as in a server result, and the repo's
-    2D/3D metrics are computed."""
+    2D/3D metrics are computed.
+
+    mode 'check': a mask that does not fit an open CT is not applied; ss.mask_conflict asks the user (sidebar dialog).
+    With only the sample phantom or nothing open, the CT the mask came from is opened. 'open_ct': open that CT first.
+    'keep': use the mask on the open CT although its position in space differs (same size only)."""
     nii = [f for f in files if NII.search(f.name)]
     vert = {VERTEBRA.search(f.name)[1].upper(): f for f in nii if VERTEBRA.search(f.name)}
     tissue = [f for f in nii if not VERTEBRA.search(f.name)]
@@ -214,9 +236,23 @@ def load_results(files: list) -> None:
         log("WARN", "MASK", f"{len(tissue)} masks chosen; using {f.name}")
     raw = f.getvalue()
     opened = None
-    if not _fits(nifti.read(raw, as_label=True)["data"]):
-        # The mask is not on the grid of the open study (e.g. the sample phantom): open the CT it came from first.
+    m0 = nifti.read(raw, as_label=True)
+    fit = _grid_match(m0)
+    if fit != "same" and mode != "keep":
         ct = find_ct(raw)
+        if mode == "check" and ss.vol is not None and not ss.vol["sample"]:
+            # A real CT is open: never replace it without asking
+            ss.mask_conflict = {
+                "files": [_MemFile(x.name, x.getvalue()) for x in files], "mask": f.name, "ct_name": ss.vol["name"],
+                "mask_grid": _grid_text(m0["data"].shape, m0["spacing"]),
+                "ct_grid": _grid_text(ss.vol["shape"], ss.vol["spacing"]),
+                "why": "a different size" if fit == "size" else "the same size but a different position or orientation in space",
+                "found": ct.name if ct else None, "can_keep": fit == "place"}
+            status(f"{f.name} does not match the open CT ({ss.vol['name']}); it was not applied.", error=True)
+            log("WARN", "MASK", f"{f.name} ({ss.mask_conflict['mask_grid']}) does not match {ss.vol['name']} "
+                                f"({ss.mask_conflict['ct_grid']}); asking before anything changes")
+            return
+        # The sample phantom or nothing is open, or the user chose to: open the CT the mask was segmented from first.
         if ct is not None:
             load_ct(ct.read_bytes(), ct.name)
             opened = ct.name
@@ -280,6 +316,20 @@ def cb_upload_mask() -> None:
         ss.up_nonce += 1
 
 
+def cb_mask_conflict(choice: str) -> None:
+    """The user's answer in the mask / CT mismatch dialog: 'open_ct', 'keep' or 'cancel'."""
+    c, ss.mask_conflict = ss.mask_conflict, None
+    if not c:
+        return
+    if choice == "cancel":
+        status(f"{c['mask']} was not opened; {c['ct_name']} is still open.")
+        log("INFO", "MASK", f"{c['mask']} not opened (does not match {c['ct_name']})")
+        return
+    if choice == "keep":
+        log("WARN", "MASK", f"{c['mask']} used on {c['ct_name']} although its position in space differs")
+    _safe(load_results, "MASK", c["files"], choice)
+
+
 def cb_upload_dicom(kind: str) -> None:
     f = ss.get(f"up_dcm_{kind}_{ss.up_nonce}")
     if not f:
@@ -320,21 +370,31 @@ def cb_clear_meas() -> None:
 
 
 
+# Sidebar tool -> (measurement kind, points to click)
+TOOLS = {"Caliper": ("line", 2), "ROI": ("roi", 2), "Angle": ("angle", 3), "HU": ("point", 1)}
+
+
+def cb_tool() -> None:
+    ss.pending = None
+
+
 def apply_click(view: str, i: int, j: int, k: int) -> None:
-    """Click on a slice: move the crosshair, or place a caliper end."""
+    """Click on a slice: move the crosshair, or place a point of the selected measurement tool."""
     plane = {"axial": ("k", (i, j)), "coronal": ("j", (i, k)), "sagittal": ("i", (j, k))}[view]
-    if ss.tool == "Caliper":
-        sl = ss.cur[plane[0]]
-        p = ss.pending
-        if p and p["view"] == view and p["slice"] == sl:
-            length = render.measure_mm(view, ss.vol["spacing"], p["a"], plane[1])
-            ss.meas.append({"id": ss.meas_id, "view": view, "slice": sl, "a": p["a"], "b": plane[1], "length_mm": length})
-            ss.meas_id += 1
-            ss.pending = None
-        else:
-            ss.pending = {"view": view, "slice": sl, "a": plane[1]}
-    else:
+    if ss.tool not in TOOLS:
         ss.cur = {"i": i, "j": j, "k": k}
+        return
+    kind, need = TOOLS[ss.tool]
+    sl = ss.cur[plane[0]]
+    p = ss.pending
+    pts = (p["pts"] if p and p["view"] == view and p["slice"] == sl and p["kind"] == kind else []) + [plane[1]]
+    if len(pts) < need:
+        ss.pending = {"view": view, "slice": sl, "kind": kind, "pts": pts}
+        return
+    res = an.measure(kind, view, sl, pts, ss.vol["spacing"], ss.vol["hu"], ss.mask["data"] if ss.mask else None, ss.labels)
+    ss.meas.append({"id": ss.meas_id, "kind": kind, "view": view, "slice": sl, "pts": pts, **res})
+    ss.meas_id += 1
+    ss.pending = None
 
 
 def cb_go_meas(m: dict) -> None:
@@ -499,28 +559,35 @@ def _report() -> None:
         return {"source": "rules", "generatedAt": now(), "narrative": an.rule_narrative(payload, derived),
                 "derived": derived, "unverifiedNumbers": [], "fallbackReason": reason}
 
+    def store(g: dict) -> None:  # session state only: no st call
+        ss.report = {**g, "payloadKey": key, "edited": False}
+        ss.editing = False
+        status("Model unavailable; rule-based draft ready for review." if g.get("fallbackReason") else "Draft report ready for review.")
+
     if llm_client.configured():
         log("INFO", "REPORT", f"sending {len(key.encode())} bytes ({len(payload)} whitelisted biomarkers) to {config.LLM_MODEL}")
-        try:
-            with st.spinner(f"Generating report with {config.LLM_MODEL}…", show_time=True):
+        # A rerun requested while the model is answering (a timer fragment, a click) stops this script at its next st
+        # call, the spinner's exit, with a BaseException that skips the handlers below. So the draft is stored inside
+        # the spinner, or the reply would be lost and the click would show nothing.
+        with st.spinner(f"Generating report with {config.LLM_MODEL}…", show_time=True):
+            try:
                 g = llm_client.generate(payload)
-            n_bad = len(g["unverifiedNumbers"])
-            log("SUCCESS", "REPORT", f"draft received in {g['latencyMs']} ms{' after a retry' if g['attempts'] > 1 else ''}"
-                                     f"{f'; {n_bad} unverified numbers' if n_bad else ''}")
-        except biomarkers.PayloadBlocked as e:
-            reason = str(e)
-            g = rules(reason)
-            log("ERROR", "PHI-GATE", f"{reason}; nothing was sent, used the rule-based draft instead")
-        except Exception as e:  # noqa: BLE001  keep the workflow moving
-            reason = str(e)
-            g = rules(reason)
-            log("WARN", "REPORT", f"{config.LLM_MODEL} failed ({reason[:200]}); used the rule-based draft instead")
+                n_bad = len(g["unverifiedNumbers"])
+                log("SUCCESS", "REPORT", f"draft received in {g['latencyMs']} ms{' after a retry' if g['attempts'] > 1 else ''}"
+                                         f"{f'; {n_bad} unverified numbers' if n_bad else ''}")
+            except biomarkers.PayloadBlocked as e:
+                reason = str(e)
+                g = rules(reason)
+                log("ERROR", "PHI-GATE", f"{reason}; nothing was sent, used the rule-based draft instead")
+            except Exception as e:  # noqa: BLE001  keep the workflow moving
+                reason = str(e)
+                g = rules(reason)
+                log("WARN", "REPORT", f"{config.LLM_MODEL} failed ({reason[:200]}); used the rule-based draft instead")
+            store(g)
     else:
         g = rules()
         log("INFO", "REPORT", "no language model set up; used the rule-based draft")
-    ss.report = {**g, "payloadKey": key, "edited": False}
-    ss.editing = False
-    status("Model unavailable; rule-based draft ready for review." if g.get("fallbackReason") else "Draft report ready for review.")
+        store(g)
 
 
 # ---------------------------------------------------------------- derived view of the state

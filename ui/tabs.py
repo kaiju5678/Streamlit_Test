@@ -1,9 +1,13 @@
 """The six tabs of the workstation (Overview, Slice viewer, Metrics table, AI report, Transmitted JSON, Run log)."""
 from __future__ import annotations
 
+import hashlib
 import html
 import json
+import logging
 import math
+import os
+import re
 from datetime import datetime
 
 import numpy as np
@@ -146,10 +150,22 @@ def overview(a: dict) -> None:
             n = rep["narrative"]
             if rep["payloadKey"] != a["payload_key"]:
                 md("<p class='banner warn'>The numbers have changed since this draft was made. Create it again before signing.</p>")
-            out = f"<div class='prose'><p>{h(n['summary'])}</p>"
-            if n["lifestyle"]:
-                out += "<h4>Lifestyle considerations</h4><ul>" + "".join(f"<li>{h(r)}</li>" for r in n["lifestyle"]) + "</ul>"
-            md(out + "<p class='disc'>This is a draft. A physician reviews and signs it on the AI report tab.</p></div>")
+            # L3 findings first (measured, not model text), then the model's summary and its first three suggestions
+            flagged = [r for r in indices(a) if r["flag"] is not None]
+            out = "<div class='assess'>"
+            if flagged:
+                out += "<div class='af'>" + "".join(
+                    f"<span class='{'bad' if r['flag'] else 'ok'}'><b>{r['yes'] if r['flag'] else r['no']}</b> {r['k'].lower()}"
+                    f"<em>{r['v']} {r['u']} · ref {r['ref']}</em></span>" for r in flagged) + "</div>"
+            elif a["ev"]:
+                out += "<p class='note'>Enter sex, height and weight in the sidebar to compare the L3 indices with cut-offs.</p>"
+            out += f"<h4>Summary</h4><p>{marked(n['summary'], rep['unverifiedNumbers'])}</p>"
+            recs = n["lifestyle"]
+            if recs:
+                more = f"<li class='more'>+ {len(recs) - 3} more on the AI report tab</li>" if len(recs) > 3 else ""
+                out += ("<h4>Suggestions</h4><ul>" + "".join(f"<li>{marked(r, rep['unverifiedNumbers'])}</li>" for r in recs[:3])
+                        + more + "</ul>")
+            md(out + "<p class='disc'>Draft for physician review. The full report and sign-off are on the AI report tab.</p></div>")
         else:
             md(f"<p class='empty'>{'Create a draft from the eight body-composition biomarkers. Only those eight numbers are sent.' if a['payload'] else 'Load a segmentation first.'}</p>")
             st.button("Create AI report" if llm_client.configured() else "Create rule-based draft", type="primary",
@@ -173,9 +189,10 @@ def overview(a: dict) -> None:
                          + (f"<span class='pill na'>{'no reference' if r['ref'] == '–' else 'needs patient data'}</span>" if r["flag"] is None
                             else pill(r["flag"], r["yes"], r["no"])) + "</td></tr>" for r in rows) + "</tbody></table>")
         e1, e2 = st.columns(2)
-        e1.download_button("Download report · HTML/PDF", data=report_html(a) if rep else "", file_name=f"{ss.ref}_report.html",
-                           mime="text/html", disabled=not rep, key="ov_dl_rep", width="stretch", on_click="ignore")
-        e2.download_button("Download metrics · CSV", data=csv_text(a) if mask else "", file_name=f"{ss.ref}_metrics.csv",
+        with e1:
+            live.open_tab("ov_pdf", "Open report · PDF", "Opens the PDF in a new tab; save or print it from there",
+                          pdf=report_pdf_bytes(a) if rep else b"")
+        e2.download_button("Download metrics · CSV", data=csv_text(a) if mask else "", file_name=fname("metrics", "csv"),
                            mime="text/csv", disabled=not mask, key="ov_dl_csv", width="stretch", on_click="ignore")
 
 
@@ -199,6 +216,14 @@ def viewer(a: dict) -> None:
         info_panel(a)
 
 
+def fname(kind: str, ext: str) -> str:
+    """Download name, e.g. BodyComp_case-5e11…_report_2026-10-27_1450.pdf. The case ref is a hash: no patient data."""
+    return f"BodyComp_{ss.ref}_{kind}_{datetime.now():%Y-%m-%d_%H%M}.{ext}"
+
+
+MEAS_NAME = {"line": "Caliper", "roi": "ROI", "angle": "Angle", "point": "HU"}
+
+
 def info_panel(a: dict) -> None:
     v, mask, labels, cur = a["vol"], a["mask"], a["labels"], a["cur"]
     hu = int(v["hu"][cur["i"], cur["j"], cur["k"]])
@@ -213,13 +238,17 @@ def info_panel(a: dict) -> None:
     md("<dl class='kv'>" + "".join(f"<dt>{k}</dt><dd>{val}</dd>" for k, val in rows) + "</dl>")
     md(f"<h4 class='sub'>Measurements ({len(ss.meas)})</h4>")
     if ss.pending:
-        md(f"<p class='note'>Caliper: first point set on {ss.pending['view']} slice {ss.pending['slice'] + 1}. Click the second point.</p>")
+        p = ss.pending
+        need = S.TOOLS[ss.tool][1] if ss.tool in S.TOOLS else len(p["pts"]) + 1
+        md(f"<p class='note'>{h(ss.tool)}: {len(p['pts'])} of {need} points set on {p['view']} slice {p['slice'] + 1}. "
+           "Click the next point on the same slice.</p>")
     if not ss.meas:
-        md("<p class='note'>Choose Tool → Caliper in the sidebar, then click two points on one slice.</p>")
+        md("<p class='note'>Pick a tool in the sidebar, then click on a slice: Caliper (two points), ROI (centre, then edge), "
+           "Angle (three points, vertex second) or HU (one point).</p>")
     for m in ss.meas:
         c1, c2, c3 = st.columns([4, 1, 1], vertical_alignment="center")
-        c1.markdown(f"<span class='mono'>#{m['id']} {m['view']} {m['slice'] + 1} · <b>{m['length_mm']:.1f} mm</b></span>",
-                    unsafe_allow_html=True)
+        c1.markdown(f"<span class='mono'>#{m['id']} {MEAS_NAME[m['kind']]} · {m['view']} {m['slice'] + 1} · <b>{h(m['text'])}</b></span>"
+                    + (f"<br><small class='note'>{h(m['detail'])}</small>" if m["detail"] else ""), unsafe_allow_html=True)
         c2.button("Go", key=f"go_{m['id']}", on_click=S.cb_go_meas, args=(m,))
         c3.button("✕", key=f"del_{m['id']}", on_click=S.cb_delete_meas, args=(m["id"],))
 
@@ -239,7 +268,7 @@ def metrics(a: dict) -> None:
         with c1:
             panel_head("Measurements per label", f"Volume and attenuation over the whole mask; areas on the current slice ({cur['k'] + 1})"
                                             f" and at L3{f' ({l3 + 1})' if l3 is not None else ''}")
-        c2.download_button("Export CSV", csv_text(a), file_name=f"{ss.ref}_metrics.csv", mime="text/csv", key="mt_csv",
+        c2.download_button("Export CSV", csv_text(a), file_name=fname("metrics", "csv"), mime="text/csv", key="mt_csv",
                            on_click="ignore", width="stretch")
         rows = []
         for L, d in labels.items():
@@ -327,17 +356,19 @@ def report(a: dict) -> None:
     stale = bool(rep) and rep["payloadKey"] != a["payload_key"]
     signed = bool(sig)
 
-    c = st.columns([2, 1.3, 2, 3], vertical_alignment="center")
+    c = st.columns([2, 1.3, 1.3, 1.5, 2.4], vertical_alignment="center")
     c[0].button("Create again" if rep else ("Create AI report" if llm_client.configured() else "Create rule-based draft"),
                 type="primary", on_click=S.cb_generate, disabled=not a["payload"] or signed, key="rp_gen", width="stretch")
     c[1].button("Done editing" if ss.editing else "Edit text", on_click=S.cb_toggle_edit, disabled=not rep or signed,
                 key="rp_edit", width="stretch")
-    c[2].download_button("Print or save as PDF", data=report_html(a) if rep else "", file_name=f"{ss.ref}_report.html",
-                         mime="text/html", disabled=not rep, key="rp_dl", on_click="ignore", width="stretch",
-                         help="Open the downloaded page and print it to PDF")
+    with c[2]:
+        live.open_tab("print_report", "Print", "Opens the PDF in a new tab; print it from there",
+                      pdf=report_pdf_bytes(a) if rep else b"")
+    c[3].download_button("Save as PDF", data=report_pdf_bytes(a) if rep else b"", file_name=fname("report", "pdf"),
+                         mime="application/pdf", disabled=not rep, key="rp_pdf", on_click="ignore", width="stretch")
     badge = (f"<span class='pill ok'>Signed by {h(sig['reader'])}</span>" if signed
              else "<span class='pill na'>Draft · not signed yet</span>" if rep else "")
-    c[3].markdown(f"<div style='text-align:right'>{badge}</div>", unsafe_allow_html=True)
+    c[4].markdown(f"<div style='text-align:right'>{badge}</div>", unsafe_allow_html=True)
 
     run = a["run"]
     seg = ("server model" if mask and mask["source"] == "inference" else mask["source"]) if mask else "none"
@@ -377,35 +408,46 @@ def report(a: dict) -> None:
             n = rep["narrative"]
             if rep.get("fallbackReason"):
                 md(f"<p class='banner warn'>{h(config.LLM_MODEL)} did not return a usable draft, so this is the rule-based draft instead. "
-                   f"Reason: <span class='mono'>{h(rep['fallbackReason'][:240])}</span>. Choose Regenerate to try the model again.</p>")
+                   f"Reason: <span class='mono'>{h(rep['fallbackReason'][:240])}</span>. Choose Create again to try the model again.</p>")
             if stale and not signed:
                 md("<p class='banner warn'>The numbers have changed since this draft was made. Create it again before signing.</p>")
-            if rep["unverifiedNumbers"]:
-                md(f"<p class='banner warn'>These numbers in the draft do not match any measured value: "
-                   f"<b class='mono'>{h(', '.join(rep['unverifiedNumbers']))}</b>. Check or remove them before signing.</p>")
-            section(n, "summary", "Body composition summary")
+            unv = rep["unverifiedNumbers"]
+            if unv:
+                md(f"<p class='banner warn'>{len(unv)} number{'s' if len(unv) > 1 else ''} in the draft do not match any measured value "
+                   f"(<b class='mono'>{h(', '.join(unv))}</b>, highlighted below). Check or remove them before signing.</p>")
             pl, d = a["payload"] or {}, rep.get("derived") or {}
             cm3 = lambda k: f1(pl[k] / 1000) if pl.get(k) is not None else "–"  # noqa: E731
+            num = lambda x, u="": "–" if x is None else f"{x}{u}"  # noqa: E731
             facts_of = {
-                "muscle": (f"<div class='facts'><span>Volume <b>{cm3('muscle_volume_mm3')} cm³</b></span>"
-                           f"<span>Density <b>{f1(pl.get('muscle_density_hu'))} HU</b></span>"
-                           f"<span>Muscle index <b>{f1(d.get('muscle_volume_index_cm2'))} cm²</b></span></div>"),
-                "fat": (f"<div class='facts'><span>SAT <b>{cm3('sfat_volume_mm3')} cm³</b></span><span>VAT <b>{cm3('vfat_volume_mm3')} cm³</b></span>"
-                        f"<span>IMAT <b>{cm3('mfat_volume_mm3')} cm³</b></span>"
-                        f"<span>VAT/SAT <b>{'–' if d.get('vat_sat_ratio') is None else d['vat_sat_ratio']}</b></span></div>"),
+                "muscle": [("Volume", f"{cm3('muscle_volume_mm3')} cm³"), ("Density", f"{f1(pl.get('muscle_density_hu'))} HU"),
+                           ("Muscle index", num(d.get("muscle_volume_index_cm2"), " cm²"))],
+                "fat": [("SAT", f"{cm3('sfat_volume_mm3')} cm³"), ("VAT", f"{cm3('vfat_volume_mm3')} cm³"),
+                        ("IMAT", f"{cm3('mfat_volume_mm3')} cm³"), ("VAT/SAT", num(d.get("vat_sat_ratio")))],
+                "metabolic": [("VAT/SAT", num(d.get("vat_sat_ratio"))), ("Visceral share of fat", num(d.get("visceral_share_of_fat_pct"), " %")),
+                              ("Fat share of body", num(d.get("fat_share_of_body_pct"), " %"))],
+                "sarcopenia": [("Myosteatosis", (d.get("myosteatosis_indication") or "–").split(" (")[0]),
+                               ("Muscle share of body", num(d.get("muscle_share_of_body_pct"), " %")),
+                               ("IMAT / muscle", num(d.get("intramuscular_fat_to_muscle_pct"), " %"))],
             } if pl else {}
-            for i, (key, title) in enumerate(SECTIONS, 1):
-                section(n, key, f"{i}. {title}", facts_of.get(key, ""))
-            with st.container(border=True):
+            with st.container(border=True, key="rp_doc"):
+                src = (f"<span class='pill ok'>AI · {h(rep['model'])}</span>" if rep["source"] == "llm"
+                       else "<span class='pill na'>Rule-based draft</span>")
+                md(f"<div class='doc-head'><div><h2>Body composition report</h2><p>Draft for physician review · generated "
+                   f"{rep['generatedAt'][:16].replace('T', ' ')} UTC{' · edited by the reader' if rep['edited'] else ''}</p></div>{src}</div>")
+                if pl:
+                    md(key_findings(pl, d))
+                section(n, "summary", "Body composition summary", unv=unv)
+                for i, (key, title) in enumerate(SECTIONS, 1):
+                    section(n, key, f"{i}. {title}", facts_of.get(key), unv)
                 md(f"<h3 class='fh'>{len(SECTIONS) + 1}. Lifestyle considerations</h3>")
                 if ss.editing:
                     st.text_area("Lifestyle considerations (one per line)", key="ed_lifestyle", height=130,
                                  on_change=S.cb_edit, args=("lifestyle",), label_visibility="collapsed")
                 else:
-                    md("<ul>" + "".join(f"<li>{h(r)}</li>" for r in n["lifestyle"]) + "</ul>" if n["lifestyle"] else "<p>None.</p>")
-            section(n, "limitations", "Limitations")
-            if signed and ss.get("signed_remarks"):
-                with st.container(border=True):
+                    md("<ul class='recs'>" + "".join(f"<li>{marked(r, unv)}</li>" for r in n["lifestyle"]) + "</ul>"
+                       if n["lifestyle"] else "<p>None.</p>")
+                section(n, "limitations", "Limitations", unv=unv)
+                if signed and ss.get("signed_remarks"):
                     md(f"<h3 class='fh'>Reader remarks</h3><p>{h(ss.signed_remarks)}</p>")
 
     with side:
@@ -455,15 +497,43 @@ def mean_hu(st_: dict, L: int) -> str:
     return f"{st_['sum'][L] / st_['n'][L]:.0f}" if st_["n"][L] else "–"
 
 
-def section(n: dict, key: str, title: str, facts: str = "") -> None:
-    with st.container(border=True):
-        md(f"<h3 class='fh'>{title}</h3>")
-        if ss.editing:
-            st.text_area(title, key=f"ed_{key}", height=110, on_change=S.cb_edit, args=(key,), label_visibility="collapsed")
-        else:
-            md(f"<p>{h(n[key] or 'Not stated.')}</p>")
-        if facts:
-            md(facts)
+def marked(text: str, unv: list[str]) -> str:
+    """Escaped text with the unverified numbers highlighted where they occur."""
+    s = h(text)
+    for x in sorted(unv, key=len, reverse=True):
+        s = re.sub(rf"(?<![\w.,#&]){re.escape(h(x))}(?!\d|[.,]\d)",
+                   lambda m: f"<mark class='unv' title='Not one of the measured or derived values'>{m.group(0)}</mark>", s)
+    return s
+
+
+def key_findings(pl: dict, d: dict) -> str:
+    """Measured values at the top of the report, so they can be read without the model's wording. Amber only for the
+    two indications the rule-based draft also uses: VAT/SAT above 1 and the myosteatosis indication."""
+    vs, myo = d.get("vat_sat_ratio"), d.get("myosteatosis_indication") or ""
+    word = myo.split(" (")[0]
+    tiles = [
+        ("VAT/SAT ratio", "–" if vs is None else f"{vs}", "visceral above subcutaneous" if vs is not None and vs > 1
+         else "visceral / subcutaneous fat", "mid" if vs is not None and vs > 1 else ""),
+        ("Myosteatosis", word.capitalize() or "–", f"{f1(pl.get('muscle_density_hu'))} HU · segment mean",
+         "mid" if word in ("likely", "possible") else ""),
+        ("Muscle index", "–" if d.get("muscle_volume_index_cm2") is None else f"{d['muscle_volume_index_cm2']} cm²",
+         "mean cross-section · no cut-off", ""),
+        ("Intramuscular fat", "–" if d.get("intramuscular_fat_to_muscle_pct") is None else f"{d['intramuscular_fat_to_muscle_pct']} %",
+         "of muscle volume", ""),
+    ]
+    return ("<div class='kf-head'>Key findings <span>measured values, not model text</span></div><div class='kf'>"
+            + "".join(f"<div class='{tone}'><span>{k}</span><b>{h(v)}</b><small>{h(s)}</small></div>" for k, v, s, tone in tiles)
+            + "</div>")
+
+
+def section(n: dict, key: str, title: str, facts: list[tuple[str, str]] | None = None, unv: list[str] | None = None) -> None:
+    md(f"<h3 class='fh'>{title}</h3>")
+    if ss.editing:
+        st.text_area(title, key=f"ed_{key}", height=110, on_change=S.cb_edit, args=(key,), label_visibility="collapsed")
+    else:
+        md(f"<p>{marked(n[key], unv or []) if n[key] else 'Not stated.'}</p>")
+    if facts:
+        md("<div class='facts'>" + "".join(f"<span>{k} <b>{h(v)}</b></span>" for k, v in facts) + "</div>")
 
 
 def l3_snapshot(a: dict) -> np.ndarray:
@@ -477,42 +547,119 @@ def l3_snapshot(a: dict) -> np.ndarray:
     return np.asarray(Image.fromarray(img).resize((g["w"], g["h"]), Image.BILINEAR))
 
 
-def report_html(a: dict) -> str:
-    """Standalone printable report (the reference app's print view)."""
+# Unicode fonts for the PDF: Windows first, then the usual Linux path (Jetson); else the built-in Helvetica (Latin-1 only)
+PDF_FONTS = [(r"C:\Windows\Fonts\segoeui.ttf", r"C:\Windows\Fonts\segoeuib.ttf"),
+             ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")]
+
+
+def report_pdf(a: dict):
+    """The report as a PDF (Print, Save as PDF and the Overview button all show this one), returned as a no-argument
+    callable: everything read from session state is captured here, the callable renders the L3 snapshot and lays out
+    the pages. Use report_pdf_bytes(), which caches the result."""
+    from fpdf import FPDF
+    from fpdf.fonts import FontFace
+
     rep, sig, pl, v = a["report"], a["signature"], a["payload"], a["vol"]
-    n = rep["narrative"]
-    snap = render.png_uri(l3_snapshot(a)) if a["l3"] is not None else ""
-    rows = "".join(f"<tr><td>{r['k']}</td><td>{r['v']} {r['u']}</td><td>{r['ref']}</td><td>"
-                   f"{'–' if r['flag'] is None else (r['yes'] if r['flag'] else r['no'])}</td></tr>" for r in indices(a))
-    secs = "".join(f"<h2>{i}. {t}</h2><p>{h(n[k] or 'Not stated.')}</p>" for i, (k, t) in enumerate(SECTIONS, 1))
-    recs = "".join(f"<li>{h(r)}</li>" for r in n["lifestyle"]) or "<li>None.</li>"
-    bio = "".join(f"<tr><td>{h(biomarkers.FIELDS[k])}</td><td><code>{k}</code></td><td>{'–' if x is None else f'{x:,}'}</td></tr>"
-                  for k, x in pl.items())
-    rng = a["bio_range"] or {}
-    signed = (f"<h2>Physician attestation</h2><p>Signed by <b>{h(sig['reader'])}</b> at {sig['signedAt']}<br>"
-              f"SHA-256 <code>{sig['sha256']}</code><br>Ed25519 key {sig['keyFingerprint']} · stored as {h(sig['file'])}</p>"
-              + (f"<p><b>Remarks:</b> {h(ss.get('signed_remarks', ''))}</p>" if ss.get("signed_remarks") else "")
-              if sig else "<p class='draft'>DRAFT — not signed</p>")
+    n, ref, remarks, rng = rep["narrative"], ss.ref, ss.get("signed_remarks"), a["bio_range"] or {}
     prov = (f"{rep['model']} (temperature {rep['temperature']})" if rep["source"] == "llm" else "rule-based draft")
-    return f"""<!doctype html><html><head><meta charset="utf-8"><title>BodyComp report {h(ss.ref)}</title>
-<style>body{{font:14px/1.5 system-ui,Segoe UI,sans-serif;max-width:820px;margin:24px auto;color:#111;padding:0 16px}}
-h1{{font-size:20px;margin:0}}h2{{font-size:15px;margin:18px 0 4px;border-bottom:1px solid #ddd}}table{{border-collapse:collapse;width:100%}}
-td,th{{border-bottom:1px solid #eee;padding:4px 6px;text-align:left}}.meta{{color:#555}}.draft{{color:#b00;font-weight:600}}
-img{{max-width:320px;float:right;margin:0 0 8px 12px;border:1px solid #ccc}}.disc{{color:#666;font-size:12px;margin-top:24px}}
-@media print{{body{{margin:0}}}}</style></head><body>
-<h1>CT body composition report</h1>
-<p class="meta">Case {h(ss.ref)} · {v['shape'][2]} axial slices · biomarkers over {h(rng.get('source', '–'))} · L3 slice {a['l3'] + 1 if a['l3'] is not None else '–'} ·
-narrative: {h(prov)} · generated {rep['generatedAt'][:19].replace('T', ' ')}{' · synthetic sample' if v['sample'] else ''}</p>
-{f'<img src="{snap}" alt="L3 axial slice">' if snap else ''}
-<h2>Body composition summary</h2><p>{h(n['summary'])}</p>{secs}
-<h2>{len(SECTIONS) + 1}. Lifestyle considerations</h2><ul>{recs}</ul>
-<h2>Limitations</h2><p>{h(n['limitations'])}</p>
-<h2>Transmitted biomarkers</h2><table><tr><th>Biomarker</th><th>Field</th><th>Value</th></tr>{bio}</table>
-<h2>L3 indices</h2><table><tr><th>Index</th><th>Value</th><th>Reference</th><th>Status</th></tr>{rows}</table>
-{signed}
-<p class="disc">Research and decision-support use. Not a cleared medical device. Automated measurements and generated text
-require review by a qualified reader before clinical use. Printed {datetime.now():%Y-%m-%d %H:%M}.</p>
-<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),300))</script></body></html>"""
+    meta = (f"Case {ref} · {v['shape'][2]} axial slices · biomarkers over {rng.get('source', '–')} · "
+            f"L3 slice {a['l3'] + 1 if a['l3'] is not None else '–'} · narrative: {prov} · "
+            f"generated {rep['generatedAt'][:19].replace('T', ' ')}{' · synthetic sample' if v['sample'] else ''}")
+    texts = ([("Body composition summary", n["summary"])]
+             + [(f"{i}. {t}", n[k] or "Not stated.") for i, (k, t) in enumerate(SECTIONS, 1)])
+    bio = [(biomarkers.FIELDS[k], k, "–" if x is None else f"{x:,}") for k, x in pl.items()]
+    idx = [(r["k"], f"{r['v']} {r['u']}", r["ref"], "–" if r["flag"] is None else (r["yes"] if r["flag"] else r["no"]))
+           for r in indices(a)]
+
+    def build() -> bytes:
+        logging.getLogger("fontTools.subset").setLevel(logging.ERROR)  # "MERG NOT subset" for every Segoe UI embed
+        pdf = FPDF(format="A4")
+        pdf.set_title(f"BodyComp report {ref}")  # the browser tab title when the PDF is opened
+        pdf.set_margins(18, 16, 18)
+        pdf.set_auto_page_break(True, 16)
+        font = next((f for f in PDF_FONTS if all(os.path.exists(p) for p in f)), None)
+        if font:
+            pdf.add_font("body", "", font[0])
+            pdf.add_font("body", "B", font[1])
+            fam, txt = "body", str
+        else:
+            fam, txt = "helvetica", lambda s: str(s).encode("latin-1", "replace").decode("latin-1")
+        pdf.add_page()
+        w = pdf.epw
+
+        def head(t: str) -> None:
+            pdf.ln(3)
+            pdf.set_font(fam, "B", 11.5)
+            pdf.cell(w, 7, txt(t), new_x="LMARGIN", new_y="NEXT")
+            pdf.set_draw_color(220, 220, 220)
+            pdf.line(pdf.l_margin, pdf.get_y(), pdf.l_margin + w, pdf.get_y())
+            pdf.ln(1.5)
+            pdf.set_font(fam, "", 10)
+
+        def para(t: str) -> None:
+            pdf.multi_cell(w, 5.2, txt(t), align="L", new_x="LMARGIN", new_y="NEXT")
+
+        def table(header: tuple, rows: list, widths: tuple) -> None:
+            pdf.set_font(fam, "", 9)
+            with pdf.table(col_widths=widths, line_height=5.2, borders_layout="HORIZONTAL_LINES",
+                           headings_style=FontFace(emphasis="BOLD", fill_color=(246, 247, 249))) as t:
+                for row in [header, *rows]:
+                    r = t.row()
+                    for cell in row:
+                        r.cell(txt(cell))
+            pdf.set_font(fam, "", 10)
+
+        pdf.set_font(fam, "B", 16)
+        pdf.cell(w, 9, "CT body composition report", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font(fam, "", 9)
+        pdf.set_text_color(85, 85, 85)
+        pdf.multi_cell(w, 4.8, txt(meta), align="L", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_text_color(17, 17, 17)
+        if a["l3"] is not None:
+            from PIL import Image
+            pdf.ln(2)
+            pdf.image(Image.fromarray(l3_snapshot(a)), x=pdf.l_margin + (w - 80) / 2, w=80)
+        for title, body in texts:
+            head(title)
+            para(body)
+        head(f"{len(SECTIONS) + 1}. Lifestyle considerations")
+        for r in n["lifestyle"] or ["None."]:
+            para(f"•  {r}")
+        head("Limitations")
+        para(n["limitations"])
+        head("Transmitted biomarkers")
+        table(("Biomarker", "Field", "Value"), bio, (3, 3, 1.6))
+        head("L3 indices")
+        table(("Index", "Value", "Reference", "Status"), idx, (3, 1.6, 2, 1.6))
+        head("Physician attestation")
+        if sig:
+            para(f"Signed by {sig['reader']} at {sig['signedAt']}\nSHA-256 {sig['sha256']}\n"
+                 f"Ed25519 key {sig['keyFingerprint']} · stored as {sig['file']}")
+            if remarks:
+                para(f"Remarks: {remarks}")
+        else:
+            pdf.set_text_color(176, 0, 0)
+            pdf.set_font(fam, "B", 10)
+            para("DRAFT — not signed")
+            pdf.set_text_color(17, 17, 17)
+        pdf.ln(4)
+        pdf.set_font(fam, "", 8.5)
+        pdf.set_text_color(102, 102, 102)
+        para("Research and decision-support use. Not a cleared medical device. Automated measurements and generated text "
+             f"require review by a qualified reader before clinical use. Printed {datetime.now():%Y-%m-%d %H:%M}.")
+        return bytes(pdf.output())
+
+    return build
+
+
+def report_pdf_bytes(a: dict) -> bytes:
+    """The PDF itself, rebuilt only when what it shows changes (kept in session state, never on disk)."""
+    rep, sig = a["report"], a["signature"]
+    key = hashlib.sha256(json.dumps([rep["narrative"], rep["generatedAt"], sig and sig["sha256"], ss.get("signed_remarks"),
+                                     a["l3"], a["wl"], a["opacity"], a["payload_key"], ss.ref], default=str).encode()).hexdigest()
+    if ss.get("pdf_cache", (None,))[0] != key:
+        ss.pdf_cache = (key, report_pdf(a)())
+    return ss.pdf_cache[1]
 
 
 # ================================================================= Transmitted JSON
@@ -543,16 +690,16 @@ def transmitted(a: dict) -> None:
     block("Biomarker payload (as sent)" if sent else "Biomarker payload",
           f"{rep['model']} · sent {rep['generatedAt'][:19].replace('T', ' ')}" if sent else
           ("Goes out only when you create a report" if llm_client.configured() else "No language model configured; nothing is sent"),
-          pl, f"{ss.ref}_payload.json", "js_pl")
+          pl, fname("payload", "json"), "js_pl")
     block("Derived indices (added in the prompt)", "Worked out from the eight numbers alone, so nothing new about the patient is added",
-          (rep or {}).get("derived") or biomarkers.derived(pl), f"{ss.ref}_derived.json", "js_der")
+          (rep or {}).get("derived") or biomarkers.derived(pl), fname("derived", "json"), "js_der")
     if rep and rep.get("request"):
         block("Request sent to the model", f"Chat completions API · prompt hash (SHA-256) {rep['promptSha256']}", rep["request"],
-              f"{ss.ref}_llm_request.json", "js_req")
+              fname("llm-request", "json"), "js_req")
     if rep and rep.get("rawResponse"):
-        block("Model reply (unedited)", f"{rep['latencyMs']} ms", rep["rawResponse"], f"{ss.ref}_llm_response.txt", "js_raw")
+        block("Model reply (unedited)", f"{rep['latencyMs']} ms", rep["rawResponse"], fname("llm-response", "txt"), "js_raw")
     if a["signature"]:
-        block("Signature receipt", "Returned after signing", a["signature"], f"{ss.ref}_signature.json", "js_sig")
+        block("Signature receipt", "Returned after signing", a["signature"], fname("signature", "json"), "js_sig")
 
 
 # ================================================================= Run log
@@ -600,7 +747,7 @@ def runlog(a: dict) -> None:
         server = [] if ss.hide_server or not run else [{**l, "origin": "server"} for l in run["logs"]]
         lines = sorted((l for l in server + ss.weblog if level == "ALL" or RANK.get(l["level"], 1) >= RANK[level]), key=lambda l: l["t"])
         text = "\n".join(f"[{l['t']}] [{l['origin']}] [{l['level']}] [{l['tag']}] {l['msg']}" for l in lines) + "\n"
-        c2.download_button("Export .log", text, file_name=f"{run['id'] if run else 'session'}_bodycomp.log", key="rl_dl",
+        c2.download_button("Export .log", text, file_name=fname(f"log-{run['id']}" if run else "log", "log"), key="rl_dl",
                            on_click="ignore", disabled=not lines, width="stretch")
         c3.button("Clear view", key="rl_clear", on_click=lambda: ss.update(weblog=[], hide_server=True), width="stretch")
         c4.button("Show server", key="rl_show", on_click=lambda: ss.update(hide_server=False), disabled=not ss.hide_server,

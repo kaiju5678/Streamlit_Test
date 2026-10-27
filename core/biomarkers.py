@@ -87,4 +87,6 @@ def derived(p: dict) -> dict:
         "muscle_volume_index_cm2": _ratio(mv, h, 0.01),
         "myosteatosis_indication": myosteatosis(p["muscle_density_hu"]),
         "myosteatosis_reference": MYO_SOURCE,
+        # the volumes again in cm³, so the report can quote readable values without the model converting them
+        **{k.replace("_mm3", "_cm3"): _ratio(p[k], 1000) for k in FIELDS if k.endswith("_mm3")},
     }

@@ -5,8 +5,6 @@ axial anterior up / patient right on screen left; coronal superior up; sagittal 
 """
 from __future__ import annotations
 
-import base64
-import io
 import math
 import re
 
@@ -70,20 +68,6 @@ def compose(hu2d: np.ndarray, mask2d: np.ndarray | None, labels: dict, wl: dict,
 
 
 
-
-
-def png_uri(img: np.ndarray, size: tuple[int, int] | None = None) -> str:
-    im = Image.fromarray(img)
-    if size and size != im.size:
-        im = im.resize(size, Image.BILINEAR)
-    buf = io.BytesIO()
-    im.save(buf, format="PNG", compress_level=1)
-    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
-
-
-def measure_mm(view: str, spacing, a, b) -> float:
-    csp, rsp = {"axial": (spacing[0], spacing[1]), "coronal": (spacing[0], spacing[2]), "sagittal": (spacing[1], spacing[2])}[view]
-    return math.hypot((b[0] - a[0]) * csp, (b[1] - a[1]) * rsp)
 
 
 # ---------------------------------------------------------------- charts

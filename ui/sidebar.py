@@ -41,7 +41,40 @@ def kv(rows: list[tuple[str, str]]) -> None:
     st.markdown("<dl class='kv'>" + "".join(f"<dt>{k}</dt><dd>{v}</dd>" for k, v in rows) + "</dl>", unsafe_allow_html=True)
 
 
+@st.dialog("This mask does not match the open CT", width="medium", dismissible=False)
+def mask_conflict() -> None:
+    c = ss.mask_conflict
+    if not c:
+        return
+    h = html.escape
+    st.markdown(f"<p><b>{h(c['mask'])}</b> has {c['why']}, so it was most likely segmented from another scan. "
+                f"Nothing has changed yet.</p><dl class='kv'><dt>Mask</dt><dd>{h(c['mask_grid'])}</dd>"
+                f"<dt>Open CT</dt><dd>{h(c['ct_name'])}<br>{h(c['ct_grid'])}</dd></dl>", unsafe_allow_html=True)
+    if c["found"]:
+        st.markdown(f"<p class='note'>Its own CT was found on disk: <b>{h(c['found'])}</b>. Opening it closes "
+                    f"{h(c['ct_name'])} and its results.</p>", unsafe_allow_html=True)
+    else:
+        st.markdown("<p class='note'>Its own CT was not found on disk. To use this mask, open its CT first.</p>",
+                    unsafe_allow_html=True)
+    cols = st.columns(1 + bool(c["found"]) + c["can_keep"])
+    choice = None
+    if cols[0].button(f"Keep {c['ct_name']}", type="primary", width="stretch", help="Close this and leave the open CT as it is"):
+        choice = "cancel"
+    if c["found"] and cols[1].button(f"Open {c['found']}", width="stretch",
+                                     help="Replace the open CT with the one this mask was made from"):
+        choice = "open_ct"
+    if c["can_keep"] and cols[-1].button("Use it anyway", width="stretch",
+                                         help="Same size as the CT: apply the mask voxel by voxel although its position in space differs"):
+        choice = "keep"
+    if choice:
+        # A click inside a dialog reruns only the dialog: rerun the whole page so it closes and the sidebar updates
+        S.cb_mask_conflict(choice)
+        st.rerun()
+
+
 def render() -> None:
+    if ss.mask_conflict:
+        mask_conflict()
     v = ss.vol
     health = inference_health()
     ready = health is not None
@@ -109,8 +142,10 @@ def render() -> None:
         ss.w_ww, ss.w_wl = ss.wl["w"], ss.wl["l"]
         c1.number_input("Width (HU)", min_value=1, step=10, key="w_ww", on_change=S.cb_wl_number)
         c2.number_input("Level (HU)", step=5, key="w_wl", on_change=S.cb_wl_number)
-        st.segmented_control("Tool", ["Cross", "Caliper"], key="tool", required=True,
-                             help="Cross: click a slice to move the crosshair. Caliper: click two points on one slice to measure.")
+        st.segmented_control("Tool", ["Cross", *S.TOOLS], key="tool", required=True, on_change=S.cb_tool,
+                             help="Cross: click a slice to move the crosshair. Caliper: two clicks, distance. "
+                                  "ROI: centre then edge, mean HU and area of a circle. Angle: three clicks, vertex second. "
+                                  "HU: one click, HU and label at that point. Measurements are listed on the Slice viewer tab.")
         st.button("Clear measurements", on_click=S.cb_clear_meas, disabled=not ss.meas and not ss.pending, width="stretch")
         st.markdown("<p class='note'>On a slice: wheel = slice, Ctrl+wheel = zoom, drag = pan, double-click = reset.</p>",
                     unsafe_allow_html=True)

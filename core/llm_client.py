@@ -28,6 +28,16 @@ Task: assess the metabolic syndrome risk and the sarcopenia risk suggested by th
 guidance.
 Rules:
 - Use only the numbers you are given. Never invent, estimate or convert values. If a value is null, say it is not available.
+- Quote volumes in cm³, using the "*_cm3" derived values exactly as given (they are the mm³ biomarkers already
+  converted). Write numbers without thousands separators.
+- "body_height_mm" is the craniocaudal height of the analysed T12-L4 segment, not the patient's height.
+- "muscle_volume_index_cm2" is muscle volume divided by segment height (mean muscle cross-sectional area, unit cm²);
+  it is not the L3 skeletal muscle index, so do not compare it with skeletal muscle index cut-offs.
+- "vat_sat_ratio" is visceral fat volume divided by subcutaneous fat volume (VAT/SAT), not a fat-to-muscle ratio.
+- Do not quote any threshold, cut-off or reference range except those inside the given data. There is no validated
+  volume or percentage cut-off for sarcopenia in these data: describe muscle quantity without one, and base the
+  sarcopenia observations on the myosteatosis indication and muscle volume index as given.
+- Quote each percentage with the exact meaning given in its label.
 - For myosteatosis use the given "myosteatosis_indication" only; do not apply other cut-offs.
 - Without height, sex and reference ranges for volumes, describe risks as "suggested" or "possible", never as a diagnosis.
 - This is decision-support information, not a definitive diagnosis.
@@ -82,9 +92,32 @@ def _post(body: dict) -> requests.Response:
         raise LlmError(f"Cannot reach the language model ({e}).") from e
 
 
+# Each derived index spelled out, so a small model does not mix up which percentage is a share of what.
+DERIVED_LABELS = {
+    "vat_sat_ratio": ("VAT/SAT ratio (visceral fat volume / subcutaneous fat volume)", ""),
+    "visceral_share_of_fat_pct": ("Visceral fat as a share of total fat volume", "%"),
+    "fat_share_of_body_pct": ("Total fat as a share of body volume", "%"),
+    "muscle_share_of_body_pct": ("Skeletal muscle as a share of body volume", "%"),
+    "intramuscular_fat_to_muscle_pct": ("Intramuscular fat as a share of skeletal muscle volume", "%"),
+    "muscle_volume_index_cm2": ("Muscle volume index (muscle volume / segment height = mean muscle cross-sectional area)", " cm²"),
+    "myosteatosis_indication": ("Myosteatosis indication", ""),
+    "myosteatosis_reference": ("Myosteatosis reference", ""),
+    "muscle_volume_cm3": ("Skeletal muscle volume", " cm³"),
+    "sfat_volume_cm3": ("Subcutaneous fat volume", " cm³"),
+    "vfat_volume_cm3": ("Visceral fat volume", " cm³"),
+    "mfat_volume_cm3": ("Intramuscular fat volume", " cm³"),
+    "total_fat_volume_cm3": ("Total fat volume", " cm³"),
+    "body_volume_cm3": ("Body volume of the segment", " cm³"),
+}
+
+
 def user_message(payload: dict, derived: dict) -> str:
+    lines = []
+    for k, v in derived.items():
+        label, unit = DERIVED_LABELS.get(k, (k, ""))
+        lines.append(f"- {label} [{k}]: {'not available' if v is None else f'{v}{unit}'}")
     return ("Body-composition biomarkers:\n" + json.dumps(payload, indent=2, ensure_ascii=False)
-            + "\n\nDerived indices (computed from the eight values above):\n" + json.dumps(derived, indent=2, ensure_ascii=False))
+            + "\n\nDerived indices (computed from the eight values above):\n" + "\n".join(lines))
 
 
 def generate(payload: dict) -> dict:

@@ -11,6 +11,23 @@
   --sans: Inter, 'Segoe UI', system-ui, -apple-system, sans-serif;
   --mono: 'JetBrains Mono', 'Cascadia Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
+/* Narrow windows (a laptop at 125–150 % Windows scaling is ~1280–1540 CSS px wide) show the whole page at 75 %, like
+   browser zoom; wide screens stay at 100 %. Media queries read the real viewport, so this does not feed back on itself. */
+/* Viewport units are not rescaled by zoom, so the main scroll area (100vh tall) would end at 75 % of the window */
+@media (max-width: 1700px) { html { zoom: 0.75; } [data-testid="stMain"] { height: calc(100vh / 0.75) !important; } }
+/* Menus and tooltips are fixed layers moved by a px transform measured on screen, which the zoom would shrink toward
+   the top left: undo the zoom on them (their text then shows at 100 %) */
+@media (max-width: 1700px) { body > div > [style*="position: fixed"], [data-testid="stSelectboxVirtualDropdown"] { zoom: 1.33333; } }
+/* Plotly charts and data tables size and hit-test themselves in screen px: same undo (they show at 100 %).
+   st.image writes the width it measured in screen px as a CSS width, which the zoom shrinks to 75 %: fill instead */
+/* Plotly measures label text in a hidden SVG appended to <body> (#js-plotly-tester); it needs the same undo, or legends
+   and axis titles are laid out 25 % too short and overlap */
+@media (max-width: 1700px) { [data-testid="stPlotlyChart"], [data-testid="stDataFrame"], #js-plotly-tester { zoom: 1.33333; }
+  [data-testid="stFullScreenFrame"] > div:has(> [data-testid="stImage"]), [data-testid="stImage"], [data-testid="stImage"] img {
+    width: 100% !important; height: auto !important; }
+  /* A table with a fixed height (st.dataframe(height=…)) gets boxes sized for 75 %; let them follow the 100 % table */
+  [data-testid="stDataFrame"], [data-testid="stFullScreenFrame"]:has(> [data-testid="stDataFrame"]),
+  [data-testid="stElementContainer"]:has(> [data-testid="stFullScreenFrame"] > [data-testid="stDataFrame"]) { height: auto !important; } }
 .block-container { padding-top: 1.2rem; padding-bottom: 1rem; max-width: 1680px; }
 code, .mono { font-family: var(--mono); }
 h3, h4 { margin: 0; }
@@ -25,6 +42,11 @@ h3, h4 { margin: 0; }
 [data-testid="stBaseButton-primary"]:hover:not(:disabled) {
   background: var(--accent-hover); border-color: var(--accent-hover); box-shadow: 0 4px 14px var(--accent-glow); transform: translateY(-1px); }
 [data-testid="stBaseButton-tertiary"]:hover:not(:disabled) { background: var(--accent-bg); color: var(--accent); }
+/* The five sidebar tools fit on one row: less side padding, and the buttons share the width */
+section[data-testid="stSidebar"] [data-testid="stElementContainer"]:has(> [data-testid="stButtonGroup"]),
+section[data-testid="stSidebar"] [data-testid="stButtonGroup"], section[data-testid="stSidebar"] [data-testid="stButtonGroup"] > div {
+  width: 100% !important; max-width: none !important; flex-wrap: nowrap; }
+section[data-testid="stSidebar"] [data-testid="stButtonGroup"] button { padding-left: 6px; padding-right: 6px; flex: 1 1 auto; min-width: 0; }
 /* Joined buttons (segmented control) only tint, so the group stays flush */
 [data-testid="stBaseButton-segmented_control"]:hover:not(:disabled) { background: var(--accent-bg); color: var(--accent); border-color: var(--accent-line); }
 .stApp button[data-testid^="stBaseButton"]:active:not(:disabled) { transform: translateY(0); box-shadow: none; }
@@ -33,6 +55,8 @@ h3, h4 { margin: 0; }
 /* No Streamlit top bar (Deploy, main menu, running/Stop indicator) so the page starts at the top edge;
    segmentation progress shows in the header chips instead */
 [data-testid="stHeader"] { display: none !important; }
+/* No link icon next to headings on hover */
+[data-testid="stHeaderActionElements"] { display: none !important; }
 
 /* ---------- header ---------- */
 html, body, .stApp { font-family: var(--sans); }
@@ -135,6 +159,19 @@ h4.sub { font-size: 12px; color: var(--muted); margin: 10px 0 4px; font-weight: 
 .banner { border: 1px solid var(--line-2); background: var(--panel-2); border-radius: 6px; padding: 8px 12px; font-size: 12.5px; color: var(--fg); margin: 6px 0; }
 .banner.warn { border-color: var(--warn); background: var(--warn-bg); }
 .prose p { margin: 0 0 8px; }
+/* Overview assessment: L3 findings as chips, then summary and suggestions in reading size */
+.assess h4 { font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); margin: 14px 0 6px; }
+[data-testid="stMarkdownContainer"] .assess p { font-size: 14px; line-height: 1.65; color: var(--fg); margin: 0; }
+[data-testid="stMarkdownContainer"] .assess p.note, [data-testid="stMarkdownContainer"] .assess p.disc { font-size: 12px; color: var(--dim); }
+.assess p.disc { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.assess ul { margin: 0; padding-left: 18px; }
+[data-testid="stMarkdownContainer"] .assess li { font-size: 14px; line-height: 1.55; margin: 0 0 4px; color: var(--fg); }
+[data-testid="stMarkdownContainer"] .assess li.more { list-style: none; margin-left: -18px; font-size: 12.5px; color: var(--accent); }
+.af { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.af span { display: inline-flex; align-items: baseline; gap: 6px; padding: 5px 10px; border-radius: 6px; font-size: 13px;
+           border: 1px solid var(--ok-line); background: var(--ok-bg); color: var(--ok-ink); }
+.af span.bad { border-color: var(--bad-line); background: var(--bad-bg); color: var(--bad-ink); }
+.af em { font-style: normal; font: 11.5px var(--mono); opacity: .85; }
 .prose h4 { font-size: 12px; color: var(--muted); margin: 8px 0 2px; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--fg); margin-top: 6px; }
 .legend span { white-space: nowrap; }
@@ -200,10 +237,33 @@ table.m td small { color: var(--muted); }
 .cbar-ax { display: flex; justify-content: space-between; font: 10.5px var(--mono); color: var(--dim); }
 .facts { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 6px; margin-top: 4px; }
 .facts b { color: var(--fg); font-weight: 600; }
-.ev-list { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 4px; font-size: 12.5px; }
+/* bottom margin: Streamlit pulls markdown up by 1rem, which would put the last row on the card border */
+.ev-list { list-style: none; padding: 0; margin: 8px 0 1rem; display: grid; gap: 4px; font-size: 12.5px; }
 .ev-list li { display: grid; grid-template-columns: auto 1fr auto 60px; gap: 8px; align-items: center; color: var(--fg); }
 .ev-list i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 .ev-list em { font-style: normal; color: var(--muted); text-align: right; font: 12px var(--mono); }
+/* the narrative as one document card (key rp_doc): sections divided by a rule instead of a card each */
+[class*="st-key-rp_doc"] { padding: 22px 26px !important; }
+.doc-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding-bottom: 12px;
+            border-bottom: 2px solid var(--fg); margin-bottom: 4px; }
+.doc-head h2 { font-size: 20px; font-weight: 700; color: var(--fg); margin: 0; padding: 0; }
+.doc-head p { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+.kf-head { font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); margin: 10px 0 6px; }
+.kf-head span { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 6px; }
+.kf { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 6px; }
+.kf > div { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; display: grid; gap: 1px; min-width: 0; }
+.kf > div.mid { background: var(--mid-bg); border-color: var(--mid-line); }
+.kf span { font-size: 11.5px; color: var(--muted); }
+.kf b { font-size: 18px; font-weight: 600; color: var(--fg); font-variant-numeric: tabular-nums; }
+.kf .mid b { color: var(--mid-ink); }
+.kf small { font-size: 11px; color: var(--dim); overflow-wrap: anywhere; }
+@media (max-width: 1100px) { .kf { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+[class*="st-key-rp_doc"] .fh { font-size: 15px; margin: 14px 0 4px; padding-top: 12px; border-top: 1px solid var(--line); }
+[class*="st-key-rp_doc"] [data-testid="stMarkdownContainer"] p { font-size: 14px; line-height: 1.65; color: var(--fg); }
+[class*="st-key-rp_doc"] .facts { border-top: 0; padding-top: 0; margin-top: -2px; }
+ul.recs { margin: 0; padding-left: 20px; }
+[data-testid="stMarkdownContainer"] ul.recs li { font-size: 14px; line-height: 1.6; margin: 0 0 4px; color: var(--fg); }
+mark.unv { background: var(--mid-bg); color: var(--mid-ink); border-bottom: 2px solid var(--warn); padding: 0 2px; border-radius: 2px; }
 .confirm { border: 1px solid var(--warn); background: var(--warn-bg); border-radius: 6px; padding: 8px 12px; font-size: 13px; margin: 6px 0; }
 
 /* ---------- run log ---------- */

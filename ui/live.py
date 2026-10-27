@@ -280,16 +280,39 @@ function build(root) {
       ctx.beginPath(); ctx.moveTo(0, Y(d.l3)); ctx.lineTo(d.ncol, Y(d.l3)); ctx.stroke(); ctx.setLineDash([]);
     }
     const P = (a) => [X(a[0]), Y(a[1])];
+    // label in screen px next to (x, y) canvas units, with a dark halo so it reads on bright tissue
+    // flipped to the left of the point when it would run past the right edge
+    const label = (text, x, y) => {
+      ctx.save(); ctx.translate(x, y); ctx.scale(sx, sy); ctx.font = '13px sans-serif'; ctx.lineJoin = 'round';
+      const w = ctx.measureText(text).width, tx = x + (6 + w) * sx > d.ncol ? -6 - w : 6;
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.8)'; ctx.strokeText(text, tx, -6); ctx.fillText(text, tx, -6); ctx.restore();
+    };
+    const dot = (x, y) => { ctx.beginPath(); ctx.ellipse(x, y, 3 * sx, 3 * sy, 0, 0, 7); ctx.fill(); };
     ctx.strokeStyle = ctx.fillStyle = '#ffd166'; ctx.lineWidth = 2 * sx;
     for (const m of d.meas) {
       if (m.slice !== idx) continue;
-      const [x0, y0] = P(m.a), [x1, y1] = P(m.b);
-      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
-      ctx.save(); ctx.translate((x0 + x1) / 2, (y0 + y1) / 2); ctx.scale(sx, sy); ctx.font = '13px sans-serif';
-      ctx.fillText(`${m.length_mm.toFixed(1)} mm`, 6, -6); ctx.restore();
+      const Q = m.pts.map(P);
+      ctx.strokeStyle = ctx.fillStyle = '#ffd166'; ctx.lineWidth = 2 * sx;
+      if (m.kind === 'roi') {
+        // radius in mm -> canvas units per axis (pixels need not be square)
+        const rx = m.r_mm / d.csp, ry = m.r_mm / d.rsp;
+        ctx.beginPath(); ctx.ellipse(Q[0][0], Q[0][1], rx, ry, 0, 0, 7); ctx.stroke();
+        label(m.text, Q[0][0] + rx * 0.7, Q[0][1] - ry * 0.7);
+      } else if (m.kind === 'point') {
+        const [x, y] = Q[0], r = 5;
+        ctx.beginPath(); ctx.moveTo(x - r * sx, y); ctx.lineTo(x + r * sx, y); ctx.moveTo(x, y - r * sy); ctx.lineTo(x, y + r * sy); ctx.stroke();
+        label(m.text, x, y);
+      } else {
+        ctx.beginPath(); ctx.moveTo(Q[0][0], Q[0][1]); Q.slice(1).forEach(([x, y]) => ctx.lineTo(x, y)); ctx.stroke();
+        Q.forEach(([x, y]) => dot(x, y));
+        const at = m.kind === 'angle' ? Q[1] : [(Q[0][0] + Q[1][0]) / 2, (Q[0][1] + Q[1][1]) / 2];
+        label(m.text, at[0], at[1]);
+      }
     }
     if (d.pending && d.pending.slice === idx) {
-      const [x, y] = P(d.pending.a); ctx.beginPath(); ctx.ellipse(x, y, 4 * sx, 4 * sy, 0, 0, 7); ctx.stroke();
+      const Q = d.pending.pts.map(P);
+      if (Q.length > 1) { ctx.beginPath(); ctx.moveTo(Q[0][0], Q[0][1]); Q.slice(1).forEach(([x, y]) => ctx.lineTo(x, y)); ctx.stroke(); }
+      Q.forEach(([x, y]) => { ctx.beginPath(); ctx.ellipse(x, y, 4 * sx, 4 * sy, 0, 0, 7); ctx.stroke(); });
     }
   };
   return S;
@@ -507,12 +530,18 @@ MESH_CSS = """
 .bcm-checks label.off { color: var(--dim, #66768a); }
 .bcm-checks label.off i { opacity: 0.35; }
 .bcm-all { margin-left: auto; color: var(--muted, #8a9ab0); font-size: 12px; cursor: pointer; text-decoration: underline; }
+/* Under the 75 % page zoom of assets/style.css Plotly's 3D picking is off by the zoom factor; undo the zoom on the plot
+   (effective zoom 1) and shrink its px height to match; a % width is not scaled by zoom */
+@media (max-width: 1700px) { .bcm-plot { zoom: 1.33333; height: calc(var(--h) * 0.75) !important; } }
 """
 
 MESH_JS = r"""
 const cache = () => (window.__bcMesh = window.__bcMesh || {});
 // from anterior and a little above: patient right (+x) on the viewer's left, as on the slices
 const CAMERA = { eye: { x: 0, y: 1.9, z: 0.55 }, up: { x: 0, y: 0, z: 1 }, center: { x: 0, y: 0, z: 0 } };
+// Wheel zoom step: Plotly's 3D camera has zoomSpeed 1, which felt slow; it is not a layout or config option, so it is set
+// on the scene's camera controller after each plot
+const ZOOM_SPEED = 2.5;
 function loadPlotly(url) {
   if (window.Plotly) return Promise.resolve(window.Plotly);
   if (!window.__bcPlotlyP) window.__bcPlotlyP = new Promise((res, rej) => {
@@ -529,7 +558,7 @@ export default function (component) {
   if (!M) {
     M = parentElement.__bcm = { sig: '', local: 0, vis: {} };
     M.stage = document.createElement('div'); M.stage.className = 'bcm-stage';
-    M.div = document.createElement('div'); M.div.style.width = '100%';
+    M.div = document.createElement('div'); M.div.className = 'bcm-plot'; M.div.style.width = '100%';
     M.reset = document.createElement('button'); M.reset.className = 'bcm-reset'; M.reset.textContent = '⟲ Reset view';
     M.reset.title = 'Back to the front view';
     const hint = document.createElement('div'); hint.className = 'bcm-hint';
@@ -541,9 +570,23 @@ export default function (component) {
     M.div.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'mouse' && e.target.tagName === 'CANVAS') e.target.setPointerCapture(e.pointerId);
     }, true);
+    // Plotly sizes the canvas once, from the width the frame had at that moment (a tab or column still being laid
+    // out), and only re-measures on a window resize: a canvas wider than the frame is clipped on the right and the
+    // model sits off centre. Follow the frame's own size instead.
+    if (window.ResizeObserver) {
+      M.ro = new ResizeObserver(() => {
+        if (M.rsz) return;
+        M.rsz = requestAnimationFrame(() => {
+          M.rsz = 0;
+          if (window.Plotly && M.div._fullLayout && M.stage.clientWidth) window.Plotly.Plots.resize(M.div);
+        });
+      });
+      M.ro.observe(M.stage);
+    }
   }
   M.data = data;
   M.div.style.height = data.height + 'px';
+  M.div.style.setProperty('--h', data.height + 'px');
   const meshes = C[data.mesh_id];
   if (!meshes) { if (M.asked !== data.mesh_id) { M.asked = data.mesh_id; setTriggerValue('missing', data.mesh_id); } return; }
   const zOf = (k) => (k + 0.5) * data.sz;
@@ -553,6 +596,10 @@ export default function (component) {
   const liveCamera = () => {
     const sc = M.div._fullLayout && M.div._fullLayout.scene && M.div._fullLayout.scene._scene;
     return sc && sc.getCamera ? sc.getCamera() : null;
+  };
+  const fastZoom = () => {
+    const sc = M.div._fullLayout && M.div._fullLayout.scene && M.div._fullLayout.scene._scene;
+    if (sc && sc.camera) sc.camera.zoomSpeed = ZOOM_SPEED;
   };
   const restyle = (Plotly, update, idx) => {
     const cam = liveCamera();
@@ -627,6 +674,14 @@ export default function (component) {
       // hiding the (wider) slice plane with its checkbox rescaled the whole model.
       const len = [0, 1, 2].map((d) => rng(d)[1] - rng(d)[0]), top = Math.max(...len);
       const aspect = { x: len[0] / top, y: len[1] / top, z: len[2] / top };
+      // A new model (e.g. the CT bone model replaced by the segmentation) keeps the user's angle and zoom, but not a
+      // pan: look at the middle of the box again, where the model now is.
+      const cam = liveCamera();
+      if (cam && cam.center) {
+        const c = cam.center;
+        cam.eye = { x: cam.eye.x - c.x, y: cam.eye.y - c.y, z: cam.eye.z - c.z };
+        cam.center = { x: 0, y: 0, z: 0 };
+      }
       Plotly.react(M.div, traces, {
         margin: { l: 0, r: 0, t: 0, b: 0 }, paper_bgcolor: 'rgba(0,0,0,0)', uirevision: 'mesh', showlegend: false,
         font: { color: '#d9e1ea', size: 11 },
@@ -634,10 +689,11 @@ export default function (component) {
         // turntable: left-right drag spins about the body's long axis and up-down tilts, the head always stays up
         // (orbit tumbles freely and rolls the model sideways)
         scene: { xaxis: ax(0), yaxis: ax(1), zaxis: ax(2), aspectmode: 'manual', aspectratio: aspect, bgcolor: 'rgba(0,0,0,0)',
-                 camera: liveCamera() || JSON.parse(JSON.stringify(CAMERA)), dragmode: 'turntable' },
-      }, { displaylogo: false, responsive: true, displayModeBar: false });
+                 camera: cam || JSON.parse(JSON.stringify(CAMERA)), dragmode: 'turntable' },
+      }, { displaylogo: false, responsive: true, displayModeBar: false }).then(fastZoom);
       M.buildChecks(Plotly, traces.map((t) => ({ name: t.name, color: t.color })));
     } else M.movePlane(Plotly);
+    fastZoom();
     M.reset.onclick = () => Plotly.relayout(M.div, { 'scene.camera': JSON.parse(JSON.stringify(CAMERA)) });
     if (M.onCur) window.removeEventListener('bodycomp:cur', M.onCur);
     M.onCur = (e) => {
@@ -672,7 +728,35 @@ export default function (component) {
 }
 """
 
+# ================================================================= open the report PDF in a new tab
+# The content opens in a new browser tab from a blob URL (memory only, nothing downloaded or written to disk)
+TAB_CSS = FILES_CSS.replace(".fb {", ".pb {") + ".pb { grid-template-columns: 1fr; } .pb button { min-height: 40px; }"
+
+TAB_HTML = '<div class="pb"><button type="button"></button></div>'
+
+TAB_JS = r"""
+export default function (component) {
+  const { data, parentElement } = component;
+  const b = parentElement.querySelector('button');
+  b.textContent = data.label;
+  b.disabled = !data.content;
+  b.title = data.content ? data.help : 'Create a report first';
+  b.__d = data;
+  if (b.__bound) return;
+  b.__bound = true;
+  b.addEventListener('click', () => {
+    const d = b.__d;
+    if (!d.content) return;
+    const body = Uint8Array.from(atob(d.content), (c) => c.charCodeAt(0));  // the PDF arrives base64-encoded
+    const url = URL.createObjectURL(new Blob([body], { type: 'application/pdf' }));
+    window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  });
+}
+"""
+
 _theme = st.components.v2.component("bodycomp_theme_memory", js=THEME_JS)
+_tab = st.components.v2.component("bodycomp_open_tab", html=TAB_HTML, css=TAB_CSS, js=TAB_JS)
 _viewer = st.components.v2.component("bodycomp_slice_viewer", css=VIEWER_CSS, js=VIEWER_JS)
 _sliders = st.components.v2.component("bodycomp_live_sliders", css=SLIDERS_CSS, js=SLIDERS_JS)
 _files = st.components.v2.component("bodycomp_file_buttons", html=FILES_HTML, css=FILES_CSS, js=FILES_JS)
@@ -805,9 +889,9 @@ def viewer(a: dict, view: str, key: str, height: int, crosshair: bool = True, li
         "colors": colors, "color_sig": hashlib.md5(repr(sorted(colors.items())).encode()).hexdigest()[:8],
         "names": {int(L): d["name"] for L, d in labels.items()},
         "visible": {int(L): bool(d["visible"]) for L, d in labels.items()} if mask else {}, "checks": checks and bool(mask),
-        "meas": [{"slice": m["slice"], "a": list(m["a"]), "b": list(m["b"]), "length_mm": m["length_mm"]}
-                 for m in ss.meas if m["view"] == view],
-        "pending": ({"slice": ss.pending["slice"], "a": list(ss.pending["a"])}
+        "meas": [{"kind": m["kind"], "slice": m["slice"], "pts": [list(q) for q in m["pts"]], "text": m["text"],
+                  "r_mm": m.get("r_mm", 0)} for m in ss.meas if m["view"] == view],
+        "pending": ({"slice": ss.pending["slice"], "pts": [list(q) for q in ss.pending["pts"]]}
                     if ss.pending and ss.pending["view"] == view else None),
     }
     _viewer(key=key, data=data, on_cur_change=lambda: _on_cur(key), on_click_change=lambda: _on_click(view, key),
@@ -826,6 +910,11 @@ def file_buttons(*, busy: bool, has_ct: bool, dicom: bool) -> None:
 
 def theme_memory() -> None:
     _theme(key="theme_memory", data={"dark": ss.dark}, on_stored_change=lambda: _on_theme("theme_memory"))
+
+
+def open_tab(key: str, label: str, help: str, *, pdf: bytes = b"") -> None:
+    """Button that opens `pdf` in a new browser tab (the browser's PDF viewer); empty pdf disables it."""
+    _tab(key=key, data={"label": label, "help": help, "content": base64.b64encode(pdf).decode()})
 
 
 def window_presets() -> None:

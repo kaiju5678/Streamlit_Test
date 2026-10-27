@@ -37,14 +37,17 @@ section[data-testid="stSidebar"], section[data-testid="stSidebar"] > div { backg
 [data-testid="stTab"][aria-selected="true"] { color: var(--accent); }
 [data-baseweb="tab-highlight"], [role="tablist"] .react-aria-SelectionIndicator { background: var(--accent) !important; }
 [data-testid="stNumberInputContainer"]:focus-within, .stSelectbox [role="group"]:focus-within,
-[data-baseweb="textarea"]:focus-within, [data-baseweb="input"]:focus-within { border-color: var(--accent) !important; }
+[data-baseweb="textarea"]:focus-within, [data-baseweb="input"]:focus-within,
+[data-testid="stTextInputRootElement"]:focus-within, [data-testid="stTextAreaRootElement"]:focus-within { border-color: var(--accent) !important; }
 [data-testid="stBaseButton-segmented_controlActive"] { background: var(--accent-bg); color: var(--accent); border-color: var(--accent-line); }
 .stApp button:disabled, .stApp button:disabled:hover { background: var(--panel-2) !important; color: var(--dim) !important;
   border-color: var(--line) !important; box-shadow: none; transform: none; }
 [data-testid="stBaseButton-primary"]:disabled { color: var(--dim) !important; }
 
 /* ---------- inputs, menus ---------- */
-[data-baseweb="input"], [data-baseweb="base-input"], [data-baseweb="textarea"], [data-baseweb="select"] > div {
+/* Streamlit 1.66 text inputs and text areas have no data-baseweb wrapper; their root element carries the light fill */
+[data-baseweb="input"], [data-baseweb="base-input"], [data-baseweb="textarea"], [data-baseweb="select"] > div,
+[data-testid="stTextInputRootElement"], [data-testid="stTextAreaRootElement"] {
   background: var(--panel) !important; border-color: var(--line-2) !important; }
 .stApp input, .stApp textarea { color: var(--fg) !important; background: transparent !important; caret-color: var(--fg); }
 .stApp input::placeholder, .stApp textarea::placeholder { color: var(--dim) !important; }

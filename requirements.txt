@@ -8,3 +8,4 @@ pillow
 scikit-image
 requests
 cryptography
+fpdf2                  # "Save as PDF" in the AI report tab
