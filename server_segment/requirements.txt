@@ -5,4 +5,5 @@ uvicorn
 nibabel
 numpy
 psutil
+pydicom
 SimpleITK

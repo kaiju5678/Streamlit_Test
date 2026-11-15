@@ -39,8 +39,8 @@ DEFAULTS = dict(
     meas=[], pending=None, meas_id=1, l3=None,
     status={"text": "", "error": False}, report=None, run=None, body=None, seg_secs=None,
     weblog=[], job=None, action=None, editing=False,
-    mesh={}, hide_server=False, up_nonce=0, mask_conflict=None, last_click={}, tab_default=None, tab_nonce=0,
-    p_sex="", p_age=None, p_h=None, p_w=None, dark=False,
+    mesh={}, hide_server=False, up_nonce=0, mask_conflict=None, need_mask=False, last_click={}, tab_default=None, tab_nonce=0,
+    p_sex="", p_h=None, p_w=None, dark=False,
 )
 
 
@@ -66,7 +66,7 @@ def status(text: str, error: bool = False) -> None:
 
 
 def patient() -> dict:
-    return {"sex": ss.p_sex or "", "age": ss.p_age, "heightCm": ss.p_h, "weightKg": ss.p_w}
+    return {"sex": ss.p_sex or "", "heightCm": ss.p_h, "weightKg": ss.p_w}
 
 
 # ---------------------------------------------------------------- loading
@@ -190,7 +190,7 @@ def load_sample() -> None:
     apply_mask(mask, "sample_phantom_seg.nii.gz", "sample", "generic")
     ss.l3 = ct.shape[2] // 2
     ss.cur = {**ss.cur, "k": ss.l3}
-    ss.p_sex, ss.p_age, ss.p_h, ss.p_w = "M", 64, 172.0, 68.0
+    ss.p_sex, ss.p_h, ss.p_w = "M", 172.0, 68.0
     status("Sample loaded. Example patient values filled in.")
     nx, ny, nz = ct.shape
     log("INFO", "SAMPLE", f"synthetic phantom {nx}×{ny}×{nz} built in {(time.time() - t0) * 1000:.0f} ms")
@@ -199,8 +199,8 @@ def load_sample() -> None:
 def load_ct(data: bytes, name: str) -> None:
     t0 = time.time()
     v = nifti.read(data)
-    open_volume(v, name, False, nifti.gzipped(data))
-    ss.p_sex, ss.p_age, ss.p_h, ss.p_w = "", None, None, None
+    open_volume(v, name, False, data)   # kept as uploaded: gzipping a 100+ MB volume takes seconds
+    ss.p_sex, ss.p_h, ss.p_w = "", None, None
     status(f"Loaded {name}")
     nx, ny, nz = v["data"].shape
     sx, sy, sz = v["spacing"]
@@ -419,6 +419,10 @@ def open_tab(name: str) -> None:
 
 
 def cb_generate() -> None:
+    # The report is built from the mask's biomarkers: without a mask, explain that in a dialog (sidebar.need_mask)
+    if ss.mask is None:
+        ss.need_mask = True
+        return
     ss.action = ("report",)
     open_tab("AI report")
 
@@ -527,7 +531,7 @@ def _dicom(files: list) -> None:
         log("SUCCESS", "DICOM", f"converted {info['modality'] or 'series'} \"{info['description'] or 'no description'}\", "
                                 f"{info['slices']} slices in {time.time() - t0:.1f} s; patient metadata not carried over"
             if info else f"converted in {time.time() - t0:.1f} s")
-        load_ct(nii, re.sub(r"[^\w.\-]", "_", label) + ".nii.gz")
+        load_ct(nii, re.sub(r"[^\w.\-]", "_", label) + ".nii")
     except Exception as e:  # noqa: BLE001
         status(str(e), error=True)
         log("ERROR", "DICOM", str(e))

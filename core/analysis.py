@@ -245,8 +245,8 @@ def rule_narrative(pl: dict, derived: dict) -> dict:
     return {
         "summary": summary, "muscle": muscle, "fat": fat, "metabolic": metabolic, "sarcopenia": sarcopenia,
         "lifestyle": lifestyle,
-        "limitations": ("Rule-based draft. Automated segmentation must be reviewed by a qualified reader. Age, sex, height "
-                        "and weight are not part of the transmitted data, so volume cut-offs are not applied; the "
+        "limitations": ("Rule-based draft. Automated segmentation must be reviewed by a qualified reader. Sex, height and "
+                        "weight are not part of the transmitted data, so volume cut-offs are not applied; the "
                         "myosteatosis cut-offs were defined on a single L3 slice, here applied to the segment mean."),
     }
 
@@ -289,7 +289,7 @@ def metrics_csv(*, ref: str, shape, spacing, mask: dict, labels: dict, stats: di
     w = csv.writer(buf)
     w.writerow(["# BodyComp metrics", ref, datetime.now(timezone.utc).isoformat(timespec="seconds")])
     w.writerow(["# grid", *shape, "spacing_mm", *[f"{s:.4f}" for s in spacing]])
-    w.writerow(["# patient", patient.get("sex") or "", patient.get("age") or "", patient.get("heightCm") or "",
+    w.writerow(["# patient", patient.get("sex") or "", patient.get("heightCm") or "",
                 patient.get("weightKg") or "", "l3_slice", "" if l3 is None else l3 + 1])
     l3s = slice_stats(hu, mask["data"], l3) if l3 is not None else None
     px = spacing[0] * spacing[1] / 100

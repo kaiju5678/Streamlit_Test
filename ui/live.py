@@ -50,26 +50,26 @@ PLOTLY_URL = _ensure_plotly_js()
 
 # ================================================================= slice viewer
 VIEWER_CSS = """
-.wrap { display: flex; flex-direction: column; gap: 6px; font: 12px var(--mono, ui-monospace, Consolas, monospace); color: var(--muted, #8696a8); }
-.stage { position: relative; background: #000; border-radius: 4px; overflow: hidden; display: flex;
+.wrap { display: flex; flex-direction: column; gap: 0.375rem; font: 0.75rem var(--mono, ui-monospace, Consolas, monospace); color: var(--muted, #8696a8); }
+.stage { position: relative; background: #000; border-radius: 0.25rem; overflow: hidden; display: flex;
          align-items: center; justify-content: center; touch-action: none; user-select: none; }
 canvas { display: block; transform-origin: center center; cursor: crosshair; }
-.hud { position: absolute; left: 8px; top: 6px; color: #d9e1ea; text-shadow: 0 0 3px #000; pointer-events: none; }
-.probe { position: absolute; right: 8px; top: 6px; color: #d9e1ea; text-shadow: 0 0 3px #000; pointer-events: none; text-align: right; }
-.tag { position: absolute; left: 8px; bottom: 6px; color: #7ee08a; text-shadow: 0 0 3px #000; pointer-events: none; }
-.hint { position: absolute; right: 8px; bottom: 6px; color: #66768a; pointer-events: none; }
-.bar { display: flex; align-items: center; gap: 10px; }
+.hud { position: absolute; left: 0.5rem; top: 0.375rem; color: #d9e1ea; text-shadow: 0 0 0.1875rem #000; pointer-events: none; }
+.probe { position: absolute; right: 0.5rem; top: 0.375rem; color: #d9e1ea; text-shadow: 0 0 0.1875rem #000; pointer-events: none; text-align: right; }
+.tag { position: absolute; left: 0.5rem; bottom: 0.375rem; color: #7ee08a; text-shadow: 0 0 0.1875rem #000; pointer-events: none; }
+.hint { position: absolute; right: 0.5rem; bottom: 0.375rem; color: #66768a; pointer-events: none; }
+.bar { display: flex; align-items: center; gap: 0.625rem; }
 input[type=range] { flex: 1; accent-color: var(--accent, #f0b44c); }
-.num { min-width: 74px; text-align: right; color: var(--fg, #d9e1ea); }
-.checks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 4px 2px 0;
-          font: 13px var(--sans, 'Segoe UI', sans-serif); color: var(--fg, #d9e1ea); }
+.num { min-width: 4.625rem; text-align: right; color: var(--fg, #d9e1ea); }
+.checks { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem 1rem; padding: 0.25rem 2px 0;
+          font: 0.8125rem var(--sans, 'Segoe UI', sans-serif); color: var(--fg, #d9e1ea); }
 .checks:empty { display: none; }
-.checks label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
-.checks input { width: 15px; height: 15px; margin: 0; cursor: pointer; accent-color: var(--c); }
-.checks i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--c); }
+.checks label { display: inline-flex; align-items: center; gap: 0.375rem; cursor: pointer; user-select: none; }
+.checks input { width: 0.9375rem; height: 0.9375rem; margin: 0; cursor: pointer; accent-color: var(--c); }
+.checks i { display: inline-block; width: 0.625rem; height: 0.625rem; border-radius: 2px; background: var(--c); }
 .checks label.off { color: var(--dim, #66768a); }
 .checks label.off i { opacity: 0.35; }
-.checks .all { margin-left: auto; color: var(--muted, #8a9ab0); font-size: 12px; cursor: pointer; text-decoration: underline; }
+.checks .all { margin-left: auto; color: var(--muted, #8a9ab0); font-size: 0.75rem; cursor: pointer; text-decoration: underline; }
 """
 
 VIEWER_JS = r"""
@@ -214,9 +214,9 @@ function build(root) {
   S.applyZoom = () => { S.cv.style.transform = `translate(${S.px}px, ${S.py}px) scale(${S.z})`; S.draw(); };
   S.layout = () => {
     const d = S.data; if (!d) return;
-    S.stage.style.height = d.height + 'px';
+    S.stage.style.height = (d.height / 16) + 'rem';   // rem: follows the page's fluid scale (assets/style.css)
     if (S.cv.width !== d.ncol || S.cv.height !== d.nrow) { S.cv.width = d.ncol; S.cv.height = d.nrow; S.ov.clear(); }
-    const W = S.stage.clientWidth || 400, H = d.height, pw = d.ncol * d.csp, ph = d.nrow * d.rsp;
+    const W = S.stage.clientWidth || 400, H = S.stage.clientHeight || d.height, pw = d.ncol * d.csp, ph = d.nrow * d.rsp;
     const s = Math.min(W / pw, H / ph);
     S.cv.style.width = (pw * s) + 'px'; S.cv.style.height = (ph * s) + 'px';
   };
@@ -347,9 +347,9 @@ export default function (component) {
 
 # ================================================================= sidebar live sliders
 SLIDERS_CSS = """
-.sl { display: flex; flex-direction: column; gap: 10px; font: 14px var(--sans, sans-serif); color: var(--fg, #d9e1ea); }
+.sl { display: flex; flex-direction: column; gap: 0.625rem; font: 0.875rem var(--sans, sans-serif); color: var(--fg, #d9e1ea); }
 .lbl b { color: var(--accent, #f0b44c); font-weight: 600; }
-input[type=range] { width: 100%; accent-color: var(--accent, #f0b44c); margin: 4px 0 0; }
+input[type=range] { width: 100%; accent-color: var(--accent, #f0b44c); margin: 0.25rem 0 0; }
 """
 
 SLIDERS_JS = r"""
@@ -393,23 +393,23 @@ export default function (component) {
 
 # ================================================================= file buttons
 FILES_CSS = """
-.fb { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font: 14px var(--sans, sans-serif); }
-button { font: inherit; color: var(--fg, #d9e1ea); background: var(--panel, #11171f); border: 1px solid var(--line-2, #2e3b4b); border-radius: 8px;
-         padding: 7px 10px; cursor: pointer; width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px;
+.fb { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font: 0.875rem var(--sans, sans-serif); }
+button { font: inherit; color: var(--fg, #d9e1ea); background: var(--panel, #11171f); border: 1px solid var(--line-2, #2e3b4b); border-radius: 0.5rem;
+         padding: 0.4375rem 0.625rem; cursor: pointer; width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.375rem;
          transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease, transform .15s ease; }
 /* Same hover as the Streamlit buttons (assets/style.css) */
 button:hover:not(:disabled) { border-color: var(--accent-line, #f0b44c); color: var(--accent, #f0b44c); background: var(--accent-bg, rgba(240,180,76,0.12));
-                              box-shadow: 0 3px 10px var(--accent-glow, transparent); transform: translateY(-1px); }
+                              box-shadow: 0 0.1875rem 0.625rem var(--accent-glow, transparent); transform: translateY(-1px); }
 button:active:not(:disabled) { transform: translateY(0); box-shadow: none; }
 button:disabled { opacity: .45; cursor: not-allowed; }
 .dd { position: relative; }
-.menu { position: absolute; z-index: 10; top: calc(100% + 4px); left: 0; right: 0; background: var(--panel, #161e28); border: 1px solid var(--line-2, #2e3b4b);
-        border-radius: 8px; padding: 4px; display: none; box-shadow: 0 8px 24px rgba(15,23,42,.16); }
+.menu { position: absolute; z-index: 10; top: calc(100% + 0.25rem); left: 0; right: 0; background: var(--panel, #161e28); border: 1px solid var(--line-2, #2e3b4b);
+        border-radius: 0.5rem; padding: 0.25rem; display: none; box-shadow: 0 0.5rem 1.5rem rgba(15,23,42,.16); }
 .menu.open { display: block; }
-.menu button { border: 0; background: transparent; justify-content: flex-start; padding: 7px 10px; }
+.menu button { border: 0; background: transparent; justify-content: flex-start; padding: 0.4375rem 0.625rem; }
 .menu button:hover { background: var(--accent-bg, #232e3b); color: var(--accent, #f0b44c); box-shadow: none; transform: none; }
-.note { grid-column: 1 / -1; font: 12px var(--sans, sans-serif); color: var(--accent, #f0b44c); min-height: 0; }
-.caret { font-size: 10px; opacity: .8; }
+.note { grid-column: 1 / -1; font: 0.75rem var(--sans, sans-serif); color: var(--accent, #f0b44c); min-height: 0; }
+.caret { font-size: 0.625rem; opacity: .8; }
 """
 
 FILES_HTML = """
@@ -464,19 +464,19 @@ export default function (component) {
 
 # ================================================================= window presets
 PRESETS_CSS = """
-.wp-title { font: 14px var(--sans, sans-serif); color: var(--fg, #d9e1ea); margin-bottom: 6px; }
-.wp { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.wp-title { font: 0.875rem var(--sans, sans-serif); color: var(--fg, #d9e1ea); margin-bottom: 0.375rem; }
+.wp { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.375rem; }
 .wp button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
-             padding: 4px 2px; border-radius: 6px; cursor: pointer; font: 13px var(--sans, sans-serif);
+             padding: 0.25rem 2px; border-radius: 0.375rem; cursor: pointer; font: 0.8125rem var(--sans, sans-serif);
              color: var(--fg, #d9e1ea); background: var(--panel, #11171f); border: 1px solid var(--line-2, #2e3b4b); }
 .wp button { transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
 .wp button:hover { border-color: var(--accent-line, #f0b44c); background: var(--accent-bg, rgba(240,180,76,0.12));
-                   box-shadow: 0 3px 10px var(--accent-glow, transparent); transform: translateY(-1px); }
+                   box-shadow: 0 0.1875rem 0.625rem var(--accent-glow, transparent); transform: translateY(-1px); }
 .wp button:active { transform: translateY(0); box-shadow: none; }
 .wp button.on { border-color: var(--accent, #f0b44c); background: var(--accent-bg, rgba(240,180,76,0.12)); }
-.wp b { font-weight: 600; font-size: 12px; text-align: center; line-height: 1.2; white-space: nowrap; }
+.wp b { font-weight: 600; font-size: 0.75rem; text-align: center; line-height: 1.2; white-space: nowrap; }
 .wp button.on b { color: var(--accent, #f0b44c); }
-.wp span { font: 11px var(--mono, ui-monospace, monospace); color: var(--muted, #8a9ab0); line-height: 1.2; }
+.wp span { font: 0.6875rem var(--mono, ui-monospace, monospace); color: var(--muted, #8a9ab0); line-height: 1.2; }
 """
 
 PRESETS_JS = r"""
@@ -514,25 +514,22 @@ export default function (component) {
 
 # ================================================================= 3D model
 MESH_CSS = """
-.bcm-stage { position: relative; border-radius: 4px; overflow: hidden; background: #000; }  /* black, as the 2D views */
-.bcm-reset { position: absolute; right: 8px; top: 8px; z-index: 5; padding: 4px 10px; border-radius: 4px; cursor: pointer;
-             font: 12px 'IBM Plex Sans', 'Segoe UI', sans-serif; color: #d9e1ea; background: rgba(17,23,31,0.85);
+.bcm-stage { position: relative; border-radius: 0.25rem; overflow: hidden; background: #000; }  /* black, as the 2D views */
+.bcm-reset { position: absolute; right: 0.5rem; top: 0.5rem; z-index: 5; padding: 0.25rem 0.625rem; border-radius: 0.25rem; cursor: pointer;
+             font: 0.75rem 'IBM Plex Sans', 'Segoe UI', sans-serif; color: #d9e1ea; background: rgba(17,23,31,0.85);
              border: 1px solid #2a3646; }
 .bcm-reset { transition: border-color .15s ease, color .15s ease; }
 .bcm-reset:hover { border-color: var(--accent, #f0b44c); color: var(--accent, #f0b44c); }
-.bcm-hint { position: absolute; left: 10px; bottom: 6px; z-index: 5; font: 11px 'IBM Plex Sans', 'Segoe UI', sans-serif;
+.bcm-hint { position: absolute; left: 0.625rem; bottom: 0.375rem; z-index: 5; font: 0.6875rem 'IBM Plex Sans', 'Segoe UI', sans-serif;
             color: #66768a; pointer-events: none; }
-.bcm-checks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 10px 2px 2px;
-              font: 13px var(--sans, 'Segoe UI', sans-serif); color: var(--fg, #d9e1ea); }
-.bcm-checks label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
-.bcm-checks input { width: 15px; height: 15px; margin: 0; cursor: pointer; accent-color: var(--c); }
-.bcm-checks i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--c); }
+.bcm-checks { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem 1rem; padding: 0.625rem 2px 2px;
+              font: 0.8125rem var(--sans, 'Segoe UI', sans-serif); color: var(--fg, #d9e1ea); }
+.bcm-checks label { display: inline-flex; align-items: center; gap: 0.375rem; cursor: pointer; user-select: none; }
+.bcm-checks input { width: 0.9375rem; height: 0.9375rem; margin: 0; cursor: pointer; accent-color: var(--c); }
+.bcm-checks i { display: inline-block; width: 0.625rem; height: 0.625rem; border-radius: 2px; background: var(--c); }
 .bcm-checks label.off { color: var(--dim, #66768a); }
 .bcm-checks label.off i { opacity: 0.35; }
-.bcm-all { margin-left: auto; color: var(--muted, #8a9ab0); font-size: 12px; cursor: pointer; text-decoration: underline; }
-/* Under the 75 % page zoom of assets/style.css Plotly's 3D picking is off by the zoom factor; undo the zoom on the plot
-   (effective zoom 1) and shrink its px height to match; a % width is not scaled by zoom */
-@media (max-width: 1700px) { .bcm-plot { zoom: 1.33333; height: calc(var(--h) * 0.75) !important; } }
+.bcm-all { margin-left: auto; color: var(--muted, #8a9ab0); font-size: 0.75rem; cursor: pointer; text-decoration: underline; }
 """
 
 MESH_JS = r"""
@@ -585,8 +582,7 @@ export default function (component) {
     }
   }
   M.data = data;
-  M.div.style.height = data.height + 'px';
-  M.div.style.setProperty('--h', data.height + 'px');
+  M.div.style.height = (data.height / 16) + 'rem';
   const meshes = C[data.mesh_id];
   if (!meshes) { if (M.asked !== data.mesh_id) { M.asked = data.mesh_id; setTriggerValue('missing', data.mesh_id); } return; }
   const zOf = (k) => (k + 0.5) * data.sz;
@@ -730,7 +726,7 @@ export default function (component) {
 
 # ================================================================= open the report PDF in a new tab
 # The content opens in a new browser tab from a blob URL (memory only, nothing downloaded or written to disk)
-TAB_CSS = FILES_CSS.replace(".fb {", ".pb {") + ".pb { grid-template-columns: 1fr; } .pb button { min-height: 40px; }"
+TAB_CSS = FILES_CSS.replace(".fb {", ".pb {") + ".pb { grid-template-columns: 1fr; } .pb button { min-height: 2.5rem; }"
 
 TAB_HTML = '<div class="pb"><button type="button"></button></div>'
 

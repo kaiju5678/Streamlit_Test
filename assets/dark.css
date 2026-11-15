@@ -70,8 +70,6 @@ button[aria-label^="Help for"] { background: transparent !important; color: var(
 [data-testid="stTab"] p { color: var(--muted); }
 [data-testid="stTab"][aria-selected="true"] p, [data-testid="stTab"][data-selected] p { color: var(--fg); }
 [data-testid="stExpander"] details { border-color: var(--line); background: var(--panel); }
-[data-testid="stExpander"] summary { color: var(--fg); }
-[data-testid="stExpander"] summary:hover { color: var(--accent); }
 [data-testid="stAlertContainer"] { background: var(--accent-bg) !important; color: var(--fg) !important; }
 [data-testid="stCode"] pre, .stApp pre { background: var(--panel-2) !important; color: var(--fg); }
 /* Streamlit draws data frames on a canvas in the light theme's colours; invert it (hue kept) to match */

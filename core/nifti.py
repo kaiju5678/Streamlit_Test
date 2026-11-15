@@ -56,6 +56,3 @@ def to_bytes(arr: np.ndarray, affine: np.ndarray) -> bytes:
     img.header.set_xyzt_units("mm")
     return gzip.compress(img.to_bytes(), compresslevel=5)
 
-
-def gzipped(data: bytes) -> bytes:
-    return data if data[:2] == b"\x1f\x8b" else gzip.compress(data, compresslevel=1)

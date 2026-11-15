@@ -6,7 +6,7 @@ and the 2D (L3) / 3D (T12–L4) metrics come from core/bodycomp.py, the same cod
 
 POST /segment      body: .nii / .nii.gz bytes; headers X-Filename, X-Run-Id (optional, 12 hex)
                    -> .nii.gz label mask on the CT grid; headers X-Labels, X-Label-Scheme, X-Run-Id, X-Body-Composition
-POST /convert      body: .zip of one DICOM study -> .nii.gz of one series; headers X-Series, X-Series-Chosen
+POST /convert      body: .zip of one DICOM study -> uncompressed .nii of one series; headers X-Series, X-Series-Chosen
 GET  /runs/{id}    log lines, stage timings and resource samples of one run (kept in memory, last 50)
 GET  /device       device, queue and GPU status
 GET  /health       liveness; "ready" turns true once the models are loaded
@@ -210,16 +210,17 @@ async def segment(request: Request, x_filename: str = Header("ct.nii.gz"), x_run
 @app.post("/convert")
 async def convert(request: Request, x_series_id: str = Header(""), x_api_key: str = Header("")):
     require_key(x_api_key)
-    if importlib.util.find_spec("SimpleITK") is None:
-        raise HTTPException(501, "SimpleITK is not installed next to the server (pip install SimpleITK); DICOM cannot be read.")
+    if importlib.util.find_spec("pydicom") is None:
+        raise HTTPException(501, "pydicom is not installed next to the server (pip install pydicom); DICOM cannot be read.")
     raw = await read_body(request, MAX_ZIP_BYTES, "DICOM upload")
     try:
-        nii, listing, chosen = await asyncio.to_thread(dicom_zip.convert, raw, x_series_id)
+        t0 = time.time()
+        nii, listing, chosen, how = await asyncio.to_thread(dicom_zip.convert, raw, x_series_id)
     except dicom_zip.ConversionError as e:
         raise HTTPException(422, str(e))
     except Exception as e:  # noqa: BLE001
         raise HTTPException(500, f"Could not convert the DICOM series: {str(e)[-300:]}")
-    print(f"converted series {chosen} ({len(raw) / 1e6:.1f} MB zip)", flush=True)
+    print(f"converted series {chosen} ({len(raw) / 1e6:.1f} MB zip, {how}, {time.time() - t0:.1f} s)", flush=True)
     return Response(nii, media_type="application/octet-stream",
                     headers={"X-Series": header_json(listing), "X-Series-Chosen": chosen})
 

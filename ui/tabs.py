@@ -68,10 +68,8 @@ def indices(a: dict) -> list[dict]:
     ev, p = a["ev"], a["patient"]
     if not ev:
         return []
-    rv = an.role_volumes(a["stats"], a["labels"], a["vol"]["spacing"]) if a["stats"] else None
-    adipose = rv["sat"]["cm3"] + rv["vat"]["cm3"] + rv["imat"]["cm3"] if rv else None
-    tissue = adipose + rv["muscle"]["cm3"] if rv else None
     src = lambda c: c["source"] if c else ""  # noqa: E731
+    # "info" rows have no published cut-off: they are shown for context and never get a status
     return [
         {"k": "Skeletal muscle index", "v": f1(ev["smi"]), "u": "cm²/m²", "ref": f"≥ {ev['smi_cut']}" if ev["smi_cut"] else "–",
          "flag": ev["low_muscle"], "yes": "Low", "no": "Normal", "src": src(an.ref_smi(p))},
@@ -79,10 +77,8 @@ def indices(a: dict) -> list[dict]:
          "flag": ev["myosteatosis"], "yes": "Low", "no": "Normal", "src": src(an.ref_smra(p))},
         {"k": "Visceral fat area", "v": f1(ev["vat"]), "u": "cm²", "ref": f"≤ {ev['vat_cut']}" if ev["vat_cut"] else "–",
          "flag": ev["visceral_obesity"], "yes": "High", "no": "Normal", "src": src(an.ref_vat_area(p))},
-        {"k": "VAT / SAT ratio", "v": "–" if ev["vat_sat"] is None else f"{ev['vat_sat']:.2f}", "u": "", "ref": "–",
-         "flag": None, "yes": "", "no": "", "src": ""},
-        {"k": "Adipose share", "v": f1(adipose / tissue * 100) if tissue else "–", "u": "%", "ref": "–",
-         "flag": None, "yes": "", "no": "", "src": ""},
+        {"k": "VAT / SAT ratio", "v": "–" if ev["vat_sat"] is None else f"{ev['vat_sat']:.2f}", "u": "", "ref": "none",
+         "flag": None, "yes": "", "no": "", "src": "Descriptive: no agreed cut-off for the L3 VAT/SAT area ratio", "info": True},
     ]
 
 
@@ -169,7 +165,7 @@ def overview(a: dict) -> None:
         else:
             md(f"<p class='empty'>{'Create a draft from the eight body-composition biomarkers. Only those eight numbers are sent.' if a['payload'] else 'Load a segmentation first.'}</p>")
             st.button("Create AI report" if llm_client.configured() else "Create rule-based draft", type="primary",
-                      on_click=S.cb_generate, key="ov_gen", disabled=a["payload"] is None)
+                      on_click=S.cb_generate, key="ov_gen")
     with c2.container(border=True):
         panel_head("Tissue composition", "Tissue volumes across the scan, and L3 indices compared with published cut-offs")
         if rv and tissue:
@@ -186,7 +182,7 @@ def overview(a: dict) -> None:
         if rows:
             md("<table class='m idx'><thead><tr><th>L3 index</th><th>Value</th><th>Reference</th><th>Status</th></tr></thead><tbody>"
                + "".join(f"<tr title='{h(r['src'])}'><td>{r['k']}</td><td>{r['v']} <small>{r['u']}</small></td><td>{r['ref']}</td><td>"
-                         + (f"<span class='pill na'>{'no reference' if r['ref'] == '–' else 'needs patient data'}</span>" if r["flag"] is None
+                         + (f"<span class='pill na'>{'for context' if r.get('info') else 'needs patient data'}</span>" if r["flag"] is None
                             else pill(r["flag"], r["yes"], r["no"])) + "</td></tr>" for r in rows) + "</tbody></table>")
         e1, e2 = st.columns(2)
         with e1:
@@ -357,7 +353,7 @@ def report(a: dict) -> None:
 
     c = st.columns([2, 1.3, 1.3, 1.5, 2.4], vertical_alignment="center")
     c[0].button("Create again" if rep else ("Create AI report" if llm_client.configured() else "Create rule-based draft"),
-                type="primary", on_click=S.cb_generate, disabled=not a["payload"], key="rp_gen", width="stretch")
+                type="primary", on_click=S.cb_generate, key="rp_gen", width="stretch")
     c[1].button("Done editing" if ss.editing else "Edit text", on_click=S.cb_toggle_edit, disabled=not rep,
                 key="rp_edit", width="stretch")
     with c[2]:

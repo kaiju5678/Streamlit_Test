@@ -72,9 +72,22 @@ def mask_conflict() -> None:
         st.rerun()
 
 
+@st.dialog("Segment the CT first", width="small", on_dismiss="ignore")
+def need_mask() -> None:
+    ss.need_mask = False   # shown once per click; closing it needs no rerun
+    st.markdown("<p>The report is written from the body-composition values of a segmentation mask, and "
+                + ("no CT is open yet. Open a CT, then run the segmentation or open a mask you already have.</p>"
+                   if ss.vol is None else "this CT has no mask yet. Run the segmentation, or open a mask you already "
+                   "have, then create the report.</p>"), unsafe_allow_html=True)
+    if st.button("OK", type="primary", width="stretch"):
+        st.rerun()
+
+
 def render() -> None:
     if ss.mask_conflict:
         mask_conflict()
+    elif ss.need_mask:
+        need_mask()
     v = ss.vol
     health = inference_health()
     ready = health is not None
@@ -160,14 +173,12 @@ def render() -> None:
 
         # ---- Patient
         sec("Patient <small>optional</small>")
-        c1, c2 = st.columns(2)
-        c1.selectbox("Sex", ["", "M", "F"], key="p_sex", format_func=lambda s: {"": "–", "M": "Male", "F": "Female"}[s])
-        c2.number_input("Age", min_value=0, max_value=120, step=1, key="p_age", placeholder="–")
+        st.selectbox("Sex", ["", "M", "F"], key="p_sex", format_func=lambda s: {"": "–", "M": "Male", "F": "Female"}[s])
         c1, c2 = st.columns(2)
         c1.number_input("Height cm", min_value=50.0, max_value=250.0, step=1.0, key="p_h", placeholder="–")
         c2.number_input("Weight kg", min_value=10.0, max_value=400.0, step=0.1, key="p_w", placeholder="–")
         b = an.bmi_of(S.patient())
-        st.markdown(f"<p class='note'>{f'BMI {b:.1f} kg/m². ' if b else 'Sex, height and weight enable the L3 cut-offs. '}"
+        st.markdown(f"<p class='note'>{f'BMI {b:.1f} kg/m². ' if b else 'Height gives the skeletal muscle index; sex, height and weight pick the L3 cut-offs. '}"
                     "Kept on this computer, never sent.</p>", unsafe_allow_html=True)
 
         # ---- 4 · Report endpoint
@@ -182,7 +193,7 @@ def render() -> None:
                        "Reports will use the rule-based draft for now.</p>" if why else ""), unsafe_allow_html=True)
         st.button("Create AI report" if on else "Create draft report", on_click=S.cb_generate, icon=":material/description:",
                   type="primary" if ss.mask is not None and ss.report is None else "secondary",
-                  disabled=v is None, width="stretch")
+                  width="stretch")
 
 
         # ---- Device status
