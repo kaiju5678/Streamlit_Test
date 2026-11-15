@@ -6,8 +6,6 @@ venv/
 *.dcm
 *.zip
 .env
-data/reports/
-data/signing-key.pem
 command.txt
 .claude
 CLAUDE.md

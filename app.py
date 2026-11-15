@@ -3,7 +3,7 @@
     terminal 1: cd server_segment && python server.py   segmentation server (Mazurowski nnU-Net + TotalSegmentator vertebrae)
     terminal 2: streamlit run app.py               ->  http://localhost:8501
 
-Studies, masks and reports live in this browser session; only signed reports are written (DATA_DIR/reports).
+Studies, masks and reports live in this browser session; nothing is written to disk.
 Only the de-identified metrics payload (Transmitted JSON tab) is sent to the language model.
 """
 from __future__ import annotations
@@ -37,11 +37,11 @@ def took_text(secs) -> str:
 
 
 def steps(a: dict) -> tuple[list[tuple[str, str]], str]:
-    """The five workflow steps as (label, done|now|todo) and a plain sentence on what to do next."""
-    v, mask, rep, sig = a["vol"], a["mask"], a["report"], a["signature"]
+    """The four workflow steps as (label, done|now|todo) and a plain sentence on what to do next."""
+    v, mask, rep = a["vol"], a["mask"], a["report"]
     stale = bool(rep) and rep["payloadKey"] != a["payload_key"]
-    done = [v is not None, mask is not None, a["l3"] is not None, bool(rep) and not stale, bool(sig)]
-    labels = ["Open CT", "Segment", "Check L3", "Report", "Sign off"]
+    done = [v is not None, mask is not None, a["l3"] is not None, bool(rep) and not stale]
+    labels = ["Open CT", "Segment", "Check L3", "Report"]
     now = next((i for i, d in enumerate(done) if not d), None)
     hint = {
         0: "Open a CT study in the sidebar (NIfTI file or DICOM).",
@@ -50,15 +50,13 @@ def steps(a: dict) -> tuple[list[tuple[str, str]], str]:
         2: "Scroll to the L3 vertebra and press <b>Set L3 here</b> in the sidebar.",
         3: ("The measurements changed after the report was written. Create it again." if stale else
             "Create the report. Only the eight numbers on the <b>Transmitted JSON</b> tab are sent."),
-        4: ("This is the sample study, so it cannot be signed. Open a real CT to sign a report." if v and v["sample"] else
-            "Review the draft on the <b>AI report</b> tab, then sign it."),
-        None: "Report signed. Export it as PDF or CSV from the Overview.",
+        None: "Report ready. Review it on the <b>AI report</b> tab, then export it as PDF or CSV from the Overview.",
     }[now]
     return [(lab, "done" if d else "now" if i == now else "todo") for i, (lab, d) in enumerate(zip(labels, done))], hint
 
 
 def header(a: dict) -> None:
-    v, mask, rep, sig = a["vol"], a["mask"], a["report"], a["signature"]
+    v, mask, rep = a["vol"], a["mask"], a["report"]
     if v:
         nx, ny, nz = v["shape"]
         sx, sy, sz = v["spacing"]
@@ -79,8 +77,7 @@ def header(a: dict) -> None:
         repc = ("mid", "Report out of date") if stale else ("ok", "Report · " + ("AI" if rep["source"] == "llm" else "rule-based"))
     else:
         repc = ("", "No report")
-    signc = ("ok", "Signed") if sig else ("mid", "Not signed") if rep else ("", "Not signed")
-    chips = "".join(f"<span class='chip {c}'>{t}</span>" for c, t in (seg, repc, signc))
+    chips = "".join(f"<span class='chip {c}'>{t}</span>" for c, t in (seg, repc))
     st.markdown(f"<header class='top'><div class='ttl'><h1>Body Composition Analysis</h1><p>{sub}</p></div>"
                 f"<div class='chips-top'>{chips}</div></header>", unsafe_allow_html=True)
     rows, hint = steps(a)

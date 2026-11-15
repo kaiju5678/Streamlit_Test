@@ -20,7 +20,7 @@ from core.http_log import HOOKS
 from core.analysis import unverified_numbers
 
 SYSTEM = """You are a medical research assistant. You write a structured, research-oriented report on CT body composition
-for a physician, who will review and sign it.
+for a physician, who will review it.
 The data are eight biomarkers measured on an abdominal CT segment, normally vertebrae T12 to L4 (skeletal muscle,
 subcutaneous fat, visceral fat, intramuscular fat), plus indices derived from them. No patient identifiers, age, sex,
 height or weight are available.

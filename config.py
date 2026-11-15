@@ -47,8 +47,6 @@ LLM_TIMEOUT_S = float(os.getenv("LLM_TIMEOUT_MS", "120000")) / 1000
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "3000"))
 
 # ---- Folders
-DATA_DIR = _path("DATA_DIR", "./data")            # signed reports + signing key
-SIGNING_KEY_PEM = os.getenv("SIGNING_KEY_PEM", "").replace("\\n", "\n")
 # A mask opened without its CT: the CT is looked up here (matching NIfTI header), with vertebrae_* of the same run.
 SEG_REPO = _path("SEG_REPO", "../CT-Muscle-and-Fat-Segmentation")
 CT_SEARCH_DIRS = [p for p in ([SEG_REPO / "demo", SEG_REPO, SEG_REPO / "results"] if SEG_REPO else [])

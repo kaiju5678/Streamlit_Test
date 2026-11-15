@@ -1,7 +1,7 @@
 """Session state and actions (the Workstation.tsx logic of ct-scan-test).
 
-Everything lives in st.session_state for this browser tab. Nothing is written to disk except signed
-reports (DATA_DIR/reports), as in the reference app.
+Everything lives in st.session_state for this browser tab. Nothing is written to disk; reports leave the app
+only as files the user downloads (PDF / CSV).
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ import config
 from core import analysis as an
 from core import biomarkers, bodycomp
 from core import labels as lb
-from core import llm_client, nifti, phantom, seg_client, signing
+from core import llm_client, nifti, phantom, seg_client
 
 ss = st.session_state
 
@@ -37,8 +37,8 @@ DEFAULTS = dict(
     vol=None, mask=None, labels={}, scheme="generic", stats=None, ref="",
     cur={"i": 0, "j": 0, "k": 0}, wl={"w": 400, "l": 40}, opacity=0.45, tool="Cross",
     meas=[], pending=None, meas_id=1, l3=None,
-    status={"text": "", "error": False}, report=None, signature=None, run=None, body=None, seg_secs=None,
-    weblog=[], job=None, action=None, editing=False, confirming=False, sign_error="",
+    status={"text": "", "error": False}, report=None, run=None, body=None, seg_secs=None,
+    weblog=[], job=None, action=None, editing=False,
     mesh={}, hide_server=False, up_nonce=0, mask_conflict=None, last_click={}, tab_default=None, tab_nonce=0,
     p_sex="", p_age=None, p_h=None, p_w=None, dark=False,
 )
@@ -75,10 +75,10 @@ def open_volume(v: dict, name: str, sample: bool, ct_bytes: bytes | None) -> Non
     ss.vol = {"hu": hu, "affine": v["affine"], "spacing": v["spacing"], "shape": hu.shape, "src": v["src"],
               "name": name, "sample": sample, "bytes": ct_bytes, "id": uuid.uuid4().hex[:8]}
     ss.ref = an.case_ref(name)
-    for k in ("mask", "stats", "l3", "report", "signature", "run", "body", "pending", "seg_secs"):
+    for k in ("mask", "stats", "l3", "report", "run", "body", "pending", "seg_secs"):
         ss[k] = None
     ss.labels, ss.meas, ss.mesh = {}, [], {}
-    ss.editing = ss.confirming = False
+    ss.editing = False
     nx, ny, nz = hu.shape
     ss.cur = {"i": nx // 2, "j": ny // 2, "k": nz // 2}
 
@@ -276,7 +276,7 @@ def load_results(files: list, mode: str = "check") -> None:
         names["50"] = "vertebrae_L3"
     k = load_mask_array(merged, f.name, "file", "generic", names)
     ss.body = body if vols else None
-    ss.report = ss.signature = None
+    ss.report = None
     found = ", ".join(level for level in ("T12", "L3", "L4") if level in vols)
     loaded = f"Loaded {opened} and {f.name}" if opened else f"Loaded {f.name}"
     if k is not None:
@@ -441,19 +441,6 @@ def cb_edit(field: str) -> None:
     ss.report = {**ss.report, "narrative": {**ss.report["narrative"], field: value}, "edited": True}
 
 
-def cb_sign(payload: dict) -> None:
-    ss.sign_error = ""
-    try:
-        s = signing.sign(payload, ss.report, ss.get("reader", ""), ss.get("remarks", ""), ss.ref, ss.vol["sample"])
-        ss.signature = s
-        ss.signed_remarks = ss.get("remarks", "")
-        log("SUCCESS", "SIGN", f"signed by {s['reader']}; sha256 {s['sha256'][:16]}…; stored {s['file']}")
-        status("Report signed and stored.")
-    except Exception as e:  # noqa: BLE001
-        ss.sign_error = str(e)
-    ss.confirming = False
-
-
 # ---------------------------------------------------------------- segmentation job (runs in a thread)
 def cb_segment() -> None:
     if ss.job is not None:  # a second click that arrived before the rerun disabled the button
@@ -496,7 +483,7 @@ def finish_job() -> None:
         ss.body = res.get("body")
         stem = NII.sub("", ss.vol["name"])
         k = load_mask_bytes(res["mask_bytes"], f"{stem}_seg.nii.gz", "inference", res["scheme"], res.get("labels"))
-        ss.report = ss.signature = None
+        ss.report = None
         status(f"Segmentation complete. L3 set automatically at slice {k + 1}; please confirm it." if k is not None
                else "Segmentation complete. Check the mask before setting L3.")
         log("SUCCESS", "INFERENCE", f"mask back after {secs:.1f} s · run {run_id}")
@@ -552,7 +539,6 @@ def _report() -> None:
     if not payload:
         return
     key = a["payload_key"]
-    ss.signature = None
 
     def rules(reason: str | None = None) -> dict:
         derived = biomarkers.derived(payload)
@@ -622,4 +608,4 @@ def analysis() -> dict:
     return {"vol": v, "mask": mask, "labels": labels, "stats": stats, "patient": p, "l3": ss.l3, "cur": ss.cur,
             "wl": ss.wl, "opacity": ss.opacity, "ev": ev, "payload": payload, "bio_range": bio_range,
             "payload_key": json.dumps(payload, sort_keys=True, ensure_ascii=False) if payload else "",
-            "report": ss.report, "signature": ss.signature, "run": ss.run, "body": ss.body}
+            "report": ss.report, "run": ss.run, "body": ss.body}

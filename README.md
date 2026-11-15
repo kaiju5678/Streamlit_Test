@@ -8,8 +8,8 @@ nnU-Net from `CT-Muscle-and-Fat-Segmentation` as the segmentation model.
 | **Overview** | Muscle, visceral-fat and total-adipose volumes; L3 muscle attenuation; axial view with mask; 3D surface model; tissue composition; L3 indices against reference cut-offs; report (HTML → PDF) and CSV export |
 | **Slice viewer** | Synced axial / coronal / sagittal views with crosshair (click to move), real-time scrolling in every view, zoom, caliper measurements |
 | **Metrics table** | Per-label voxels, volume, mean and SD HU, slice and L3 areas; the repo's own 2D (L3) and 3D (T12–L4) metrics; cross-sectional area by slice (click to navigate); CSV |
-| **AI report** | Draft from an OpenAI-compatible LLM (MedGemma) or rule-based fallback; flags numbers not in the measurements; editable; physician sign-off with Ed25519 signature |
-| **Transmitted JSON** | The exact payload (the eight whitelisted biomarkers), its whitelist check, derived indices, LLM request, raw response and signature receipt |
+| **AI report** | Draft from an OpenAI-compatible LLM (MedGemma) or rule-based fallback; flags numbers not in the measurements; editable |
+| **Transmitted JSON** | The exact payload (the eight whitelisted biomarkers), its whitelist check, derived indices, LLM request and raw response |
 | **Run log** | Server pipeline log merged with the session log; level filter; export; wall time, peak memory, throughput; GPU / power profile |
 
 The sidebar has data input buttons (Open CT and Open mask open the file picker directly; a mask that does not
@@ -26,8 +26,7 @@ told the new position only when the movement stops. plotly.js for the 3D model i
 ```
 browser ─► Streamlit app.py (:8501) ─► server_segment/server.py (:8000) ─► Mazurowski nnU-Net, resident on the GPU (labels 1–4)
                                 │                                  └► TotalSegmentator T12 / L3 / L4 (L3 → label 50)
-                                ├─► OpenAI-compatible LLM (eight whitelisted numbers only)
-                                └─► DATA_DIR/reports (signed reports, signing key)
+                                └─► OpenAI-compatible LLM (eight whitelisted numbers only)
 ```
 
 ## Run (Windows, venv in `intern2\venv`)
@@ -111,7 +110,7 @@ Measured on the demo CT (512×512×53, RTX 3050 laptop 4 GB, TTA on) against the
 
 ```
 app.py              page: header (status chips, workflow stepper with the next step, live Seg time), tabs
-ui/state.py         session state and actions (load, segment, report, sign)
+ui/state.py         session state and actions (load, segment, report)
 ui/sidebar.py       sidebar sections
 ui/live.py          real-time slice viewers, sliders, file buttons, 3D model (st.components.v2)
 ui/tabs.py          the six tabs
@@ -121,7 +120,6 @@ core/biomarkers.py  the eight transmitted biomarkers, whitelist check (blocks an
 core/render.py      MPR slices, Plotly viewers and charts, 3D surfaces
 core/labels.py      label schemes, roles, colours, W/L presets
 core/llm_client.py  OpenAI-compatible report drafting (JSON mode, retry, thinking-tag stripping)
-core/signing.py     Ed25519 sign-off
 core/seg_client.py  client for server_segment/server.py
 server_segment/server.py segmentation server: routes, GPU job queue
 server_segment/engine.py resident nnU-Net + TotalSegmentator, metrics via core/bodycomp.py

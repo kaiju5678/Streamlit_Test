@@ -144,12 +144,12 @@ def overview(a: dict) -> None:
                    else "Rule-based draft (no language model set up)")
         else:
             sub = "No report yet"
-        badge = "<span class='pill ok'>Signed</span>" if a["signature"] else "<span class='pill na'>Draft</span>" if rep else ""
+        badge = "<span class='pill na'>Draft</span>" if rep else ""
         md(f"<div class='panel-head'><h3>Assessment {badge}</h3><p>{h(sub)}</p></div>")
         if rep:
             n = rep["narrative"]
             if rep["payloadKey"] != a["payload_key"]:
-                md("<p class='banner warn'>The numbers have changed since this draft was made. Create it again before signing.</p>")
+                md("<p class='banner warn'>The numbers have changed since this draft was made. Create it again.</p>")
             # L3 findings first (measured, not model text), then the model's summary and its first three suggestions
             flagged = [r for r in indices(a) if r["flag"] is not None]
             out = "<div class='assess'>"
@@ -165,7 +165,7 @@ def overview(a: dict) -> None:
                 more = f"<li class='more'>+ {len(recs) - 3} more on the AI report tab</li>" if len(recs) > 3 else ""
                 out += ("<h4>Suggestions</h4><ul>" + "".join(f"<li>{marked(r, rep['unverifiedNumbers'])}</li>" for r in recs[:3])
                         + more + "</ul>")
-            md(out + "<p class='disc'>Draft for physician review. The full report and sign-off are on the AI report tab.</p></div>")
+            md(out + "<p class='disc'>Draft for physician review. The full report is on the AI report tab.</p></div>")
         else:
             md(f"<p class='empty'>{'Create a draft from the eight body-composition biomarkers. Only those eight numbers are sent.' if a['payload'] else 'Load a segmentation first.'}</p>")
             st.button("Create AI report" if llm_client.configured() else "Create rule-based draft", type="primary",
@@ -352,22 +352,20 @@ def risk_card(title, metric, value, unit, cutoff, flag, flag_when, yes, no, lo, 
 
 
 def report(a: dict) -> None:
-    v, mask, labels, l3, p, rep, sig, ev = a["vol"], a["mask"], a["labels"], a["l3"], a["patient"], a["report"], a["signature"], a["ev"]
+    v, mask, labels, l3, p, rep, ev = a["vol"], a["mask"], a["labels"], a["l3"], a["patient"], a["report"], a["ev"]
     stale = bool(rep) and rep["payloadKey"] != a["payload_key"]
-    signed = bool(sig)
 
     c = st.columns([2, 1.3, 1.3, 1.5, 2.4], vertical_alignment="center")
     c[0].button("Create again" if rep else ("Create AI report" if llm_client.configured() else "Create rule-based draft"),
-                type="primary", on_click=S.cb_generate, disabled=not a["payload"] or signed, key="rp_gen", width="stretch")
-    c[1].button("Done editing" if ss.editing else "Edit text", on_click=S.cb_toggle_edit, disabled=not rep or signed,
+                type="primary", on_click=S.cb_generate, disabled=not a["payload"], key="rp_gen", width="stretch")
+    c[1].button("Done editing" if ss.editing else "Edit text", on_click=S.cb_toggle_edit, disabled=not rep,
                 key="rp_edit", width="stretch")
     with c[2]:
         live.open_tab("print_report", "Print", "Opens the PDF in a new tab; print it from there",
                       pdf=report_pdf_bytes(a) if rep else b"")
     c[3].download_button("Save as PDF", data=report_pdf_bytes(a) if rep else b"", file_name=fname("report", "pdf"),
                          mime="application/pdf", disabled=not rep, key="rp_pdf", on_click="ignore", width="stretch")
-    badge = (f"<span class='pill ok'>Signed by {h(sig['reader'])}</span>" if signed
-             else "<span class='pill na'>Draft · not signed yet</span>" if rep else "")
+    badge = "<span class='pill na'>Draft · for physician review</span>" if rep else ""
     c[4].markdown(f"<div style='text-align:right'>{badge}</div>", unsafe_allow_html=True)
 
     run = a["run"]
@@ -377,14 +375,14 @@ def report(a: dict) -> None:
     narr_sub = (f"temperature {rep['temperature']} · {rep['latencyMs'] / 1000:.1f} s{' · after retry' if rep.get('attempts', 1) > 1 else ''}"
                 if rep and rep["source"] == "llm" else "model failed · fallback" if rep and rep.get("fallbackReason")
                 else "no language model" if rep else "")
-    state = "Signed" if signed else "Out of date" if stale else ("Draft · edited" if rep["edited"] else "Draft") if rep else "Not started"
+    state = "Out of date" if stale else ("Draft · edited" if rep["edited"] else "Draft") if rep else "Not started"
     md("<section class='prov'>"
        f"<div><span class='k'>Case</span><b>{h(ss.ref or '–')}</b><small>{'synthetic sample' if v['sample'] else 'identifier hashed'}</small></div>"
        f"<div><span class='k'>Segmentation</span><b>{h(seg)}</b><small>{h(seg_sub)}</small></div>"
        f"<div><span class='k'>Narrative</span><b>{h(narr)}</b><small>{h(narr_sub)}</small></div>"
        f"<div><span class='k'>Prompt SHA-256</span><b class='mono'>{(rep or {}).get('promptSha256', '')[:12] + '…' if rep and rep.get('promptSha256') else '–'}</b>"
        f"<small>{rep['generatedAt'][:19].replace('T', ' ') if rep else ''}</small></div>"
-       f"<div><span class='k'>Status</span><b>{state}</b><small>{sig['signedAt'][:19].replace('T', ' ') if signed else ''}</small></div>"
+       f"<div><span class='k'>Status</span><b>{state}</b><small></small></div>"
        "</section>")
 
     if ev:
@@ -409,12 +407,12 @@ def report(a: dict) -> None:
             if rep.get("fallbackReason"):
                 md(f"<p class='banner warn'>{h(config.LLM_MODEL)} did not return a usable draft, so this is the rule-based draft instead. "
                    f"Reason: <span class='mono'>{h(rep['fallbackReason'][:240])}</span>. Choose Create again to try the model again.</p>")
-            if stale and not signed:
-                md("<p class='banner warn'>The numbers have changed since this draft was made. Create it again before signing.</p>")
+            if stale:
+                md("<p class='banner warn'>The numbers have changed since this draft was made. Create it again.</p>")
             unv = rep["unverifiedNumbers"]
             if unv:
                 md(f"<p class='banner warn'>{len(unv)} number{'s' if len(unv) > 1 else ''} in the draft do not match any measured value "
-                   f"(<b class='mono'>{h(', '.join(unv))}</b>, highlighted below). Check or remove them before signing.</p>")
+                   f"(<b class='mono'>{h(', '.join(unv))}</b>, highlighted below). Check or remove them before using the report.</p>")
             pl, d = a["payload"] or {}, rep.get("derived") or {}
             cm3 = lambda k: f1(pl[k] / 1000) if pl.get(k) is not None else "–"  # noqa: E731
             num = lambda x, u="": "–" if x is None else f"{x}{u}"  # noqa: E731
@@ -447,8 +445,6 @@ def report(a: dict) -> None:
                     md("<ul class='recs'>" + "".join(f"<li>{marked(r, unv)}</li>" for r in n["lifestyle"]) + "</ul>"
                        if n["lifestyle"] else "<p>None.</p>")
                 section(n, "limitations", "Limitations", unv=unv)
-                if signed and ss.get("signed_remarks"):
-                    md(f"<h3 class='fh'>Reader remarks</h3><p>{h(ss.signed_remarks)}</p>")
 
     with side:
         with st.container(border=True):
@@ -463,32 +459,6 @@ def report(a: dict) -> None:
                         f"<li><i style='background:{lb.rgb(d['color'])}'></i>{h(d['name'])}<b>{f1(l3s['n'][L] * sp[0] * sp[1] / 100)} cm²</b>"
                         f"<em>{mean_hu(l3s, L)} HU</em></li>"
                         for L, d in labels.items()) + "</ul>")
-        with st.container(border=True):
-            panel_head("Physician attestation", "Signed · saved on this computer" if signed else "Check the draft before signing")
-            if signed:
-                md("<dl class='kv sig'>"
-                   f"<dt>Reader</dt><dd>{h(sig['reader'])}</dd><dt>Login</dt><dd>{h(sig['authenticatedUser'] or 'not provided by proxy')}</dd>"
-                   f"<dt>Signed</dt><dd>{sig['signedAt'][:19].replace('T', ' ')} UTC</dd><dt>SHA-256</dt><dd class='mono'>{sig['sha256']}</dd>"
-                   f"<dt>Ed25519</dt><dd class='mono'>{sig['signature'][:44]}…</dd><dt>Key</dt><dd class='mono'>{sig['keyFingerprint']}</dd>"
-                   f"<dt>Stored as</dt><dd class='mono'>{h(sig['file'])}</dd></dl>")
-            else:
-                st.text_input("Reading physician", key="reader", placeholder="Full name and credentials")
-                st.text_area("Remarks or corrections", key="remarks", height=100, placeholder="Optional addendum stored with the signed report")
-                if v["sample"]:
-                    md("<p class='note warn'>Sample studies can't be signed.</p>")
-                reader = (ss.get("reader") or "").strip()
-                if ss.confirming:
-                    md(f"<div class='confirm'>Sign this report as <b>{h(reader)}</b>? It cannot be changed afterwards.</div>")
-                    b1, b2 = st.columns(2)
-                    b1.button("Yes, sign this report", type="primary", on_click=S.cb_sign, args=(a["payload"],), width="stretch")
-                    b2.button("Cancel", on_click=lambda: ss.update(confirming=False), width="stretch")
-                else:
-                    st.button("Sign report", type="primary", on_click=lambda: ss.update(confirming=True), width="stretch",
-                              disabled=not rep or stale or not reader or v["sample"])
-                if ss.sign_error:
-                    md(f"<p class='status err'>{h(ss.sign_error)}</p>")
-                md(f"<p class='note'>The metrics, narrative, model provenance and your remarks are signed with an Ed25519 key "
-                   f"and stored in <span class='mono'>{h(config.DATA_DIR / 'reports')}</span>.</p>")
         md("<p class='disc'>Research and decision-support use. Not a cleared medical device. Automated measurements and generated "
            "text require review by a qualified reader before clinical use.</p>")
 
@@ -559,8 +529,8 @@ def report_pdf(a: dict):
     from fpdf import FPDF
     from fpdf.fonts import FontFace
 
-    rep, sig, pl, v = a["report"], a["signature"], a["payload"], a["vol"]
-    n, ref, remarks, rng = rep["narrative"], ss.ref, ss.get("signed_remarks"), a["bio_range"] or {}
+    rep, pl, v = a["report"], a["payload"], a["vol"]
+    n, ref, rng = rep["narrative"], ss.ref, a["bio_range"] or {}
     prov = (f"{rep['model']} (temperature {rep['temperature']})" if rep["source"] == "llm" else "rule-based draft")
     meta = (f"Case {ref} · {v['shape'][2]} axial slices · biomarkers over {rng.get('source', '–')} · "
             f"L3 slice {a['l3'] + 1 if a['l3'] is not None else '–'} · narrative: {prov} · "
@@ -631,17 +601,6 @@ def report_pdf(a: dict):
         table(("Biomarker", "Field", "Value"), bio, (3, 3, 1.6))
         head("L3 indices")
         table(("Index", "Value", "Reference", "Status"), idx, (3, 1.6, 2, 1.6))
-        head("Physician attestation")
-        if sig:
-            para(f"Signed by {sig['reader']} at {sig['signedAt']}\nSHA-256 {sig['sha256']}\n"
-                 f"Ed25519 key {sig['keyFingerprint']} · stored as {sig['file']}")
-            if remarks:
-                para(f"Remarks: {remarks}")
-        else:
-            pdf.set_text_color(176, 0, 0)
-            pdf.set_font(fam, "B", 10)
-            para("DRAFT — not signed")
-            pdf.set_text_color(17, 17, 17)
         pdf.ln(4)
         pdf.set_font(fam, "", 8.5)
         pdf.set_text_color(102, 102, 102)
@@ -654,8 +613,8 @@ def report_pdf(a: dict):
 
 def report_pdf_bytes(a: dict) -> bytes:
     """The PDF itself, rebuilt only when what it shows changes (kept in session state, never on disk)."""
-    rep, sig = a["report"], a["signature"]
-    key = hashlib.sha256(json.dumps([rep["narrative"], rep["generatedAt"], sig and sig["sha256"], ss.get("signed_remarks"),
+    rep = a["report"]
+    key = hashlib.sha256(json.dumps([rep["narrative"], rep["generatedAt"],
                                      a["l3"], a["wl"], a["opacity"], a["payload_key"], ss.ref], default=str).encode()).hexdigest()
     if ss.get("pdf_cache", (None,))[0] != key:
         ss.pdf_cache = (key, report_pdf(a)())
@@ -698,8 +657,6 @@ def transmitted(a: dict) -> None:
               fname("llm-request", "json"), "js_req")
     if rep and rep.get("rawResponse"):
         block("Model reply (unedited)", f"{rep['latencyMs']} ms", rep["rawResponse"], fname("llm-response", "txt"), "js_raw")
-    if a["signature"]:
-        block("Signature receipt", "Returned after signing", a["signature"], fname("signature", "json"), "js_sig")
 
 
 # ================================================================= Run log

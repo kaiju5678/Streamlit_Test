@@ -126,7 +126,6 @@ section[data-testid="stSidebar"] .brand span { font-size: 12px; color: var(--dim
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 4px 0; font-size: 12px; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; font-family: var(--mono); color: var(--fg); overflow-wrap: anywhere; }
-.kv.sig dd { font-size: 11px; }
 .status { font: 12px var(--mono); color: var(--muted); margin: 2px 0; overflow-wrap: anywhere; }
 .status.err { color: var(--bad); }
 .note { font-size: 12px; color: var(--dim); margin: 2px 0; }
@@ -264,7 +263,6 @@ table.m td small { color: var(--muted); }
 ul.recs { margin: 0; padding-left: 20px; }
 [data-testid="stMarkdownContainer"] ul.recs li { font-size: 14px; line-height: 1.6; margin: 0 0 4px; color: var(--fg); }
 mark.unv { background: var(--mid-bg); color: var(--mid-ink); border-bottom: 2px solid var(--warn); padding: 0 2px; border-radius: 2px; }
-.confirm { border: 1px solid var(--warn); background: var(--warn-bg); border-radius: 6px; padding: 8px 12px; font-size: 13px; margin: 6px 0; }
 
 /* ---------- run log ---------- */
 /* column-reverse with newest-first markup: opens scrolled to the newest line */
