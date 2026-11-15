@@ -60,6 +60,20 @@ class RAS:
         return nib.orientations.apply_orientation(arr, self.ornt)
 
 
+class _Torch:
+    """Stand-in for the torch module inside nnU-Net's predictor, so its torch.autocast (FP16 mixed precision) can be
+    switched off for one run (FP32). Same shim as benchmark.py."""
+
+    def __init__(self, torch, amp: bool) -> None:
+        self._torch, self.amp = torch, amp
+
+    def __getattr__(self, name):
+        return getattr(self._torch, name)
+
+    def autocast(self, device_type, enabled=True, **kw):
+        return self._torch.autocast(device_type, enabled=enabled and self.amp, **kw)
+
+
 class TissueModel:
     def __init__(self, model_dir: Path, checkpoint: str, tta: bool) -> None:
         import torch
@@ -80,11 +94,15 @@ class TissueModel:
         patch = self.predictor.configuration_manager.patch_size
         self.predictor.predict_logits_from_preprocessed_data(self.torch.zeros((1, 1, *patch)))
 
-    def predict(self, img: nib.Nifti1Image) -> np.ndarray:
-        """Label map on the CT's own voxel grid (same axis order as the NIfTI)."""
+    def predict(self, img: nib.Nifti1Image, tta: bool = True, amp: bool = True) -> np.ndarray:
+        """Label map on the CT's own voxel grid (same axis order as the NIfTI). tta = mirroring test-time augmentation,
+        amp = FP16 mixed precision (else FP32). Both are set per run; the single GPU worker makes that safe."""
+        import nnunetv2.inference.predict_from_raw_data as nnp
         from nnunetv2.inference.export_prediction import convert_predicted_logits_to_segmentation_with_correct_shape
 
         p = self.predictor
+        p.use_mirroring = tta
+        nnp.torch = _Torch(self.torch, amp)
         # nnU-Net was trained on SimpleITK arrays: (channel, z, y, x) of the stored grid, spacing reversed to match
         vol = np.asanyarray(img.dataobj, dtype=np.float32).transpose(2, 1, 0)[None]
         props = {"spacing": [float(s) for s in img.header.get_zooms()[:3][::-1]]}
@@ -132,7 +150,7 @@ class Engine:
             except ImportError as e:
                 self.vertebrae_error = f"TotalSegmentator not importable: {e}"
 
-    def segment(self, raw: bytes, run) -> Result:
+    def segment(self, raw: bytes, run, tta: bool = True, amp: bool = True) -> Result:
         with run.stage("preprocess"):
             img = read_nifti(raw)
             run.log("DEBUG", "PREPROCESS", f"grid {img.shape}, spacing {tuple(round(float(z), 3) for z in img.header.get_zooms()[:3])}, "
@@ -149,7 +167,7 @@ class Engine:
                           {"slices": {}, "metrics_2d": None, "metrics_3d": None})
 
         with run.stage("inference"):
-            lab = self.tissue.predict(img)
+            lab = self.tissue.predict(img, tta, amp)
         labels = dict(TISSUE_LABELS)
 
         verts: dict[str, np.ndarray] = {}

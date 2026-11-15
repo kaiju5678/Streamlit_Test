@@ -64,11 +64,13 @@ def run_record(run_id: str) -> dict | None:
         return None
 
 
-def segment(ct_bytes: bytes, filename: str, run_id: str) -> dict:
-    """Send CT bytes, receive the mask and its label names. Blocking (call from a thread)."""
+def segment(ct_bytes: bytes, filename: str, run_id: str, tta: bool = True, amp: bool = True) -> dict:
+    """Send CT bytes, receive the mask and its label names. Blocking (call from a thread).
+    tta / amp: mirroring test-time augmentation and FP16 mixed precision for this run (Advanced in the sidebar)."""
     r = requests.post(f"{config.INFERENCE_BASE}/segment", hooks=HOOKS, data=ct_bytes, timeout=config.INFERENCE_TIMEOUT_S,
                       headers=_headers({"Content-Type": "application/octet-stream", "X-Filename": quote(filename),
-                                        "X-Run-Id": run_id}))
+                                        "X-Run-Id": run_id,
+                                        "X-Seg-TTA": "1" if tta else "0", "X-Seg-AMP": "1" if amp else "0"}))
     if not r.ok:
         raise RuntimeError(_error(r))
     return {
@@ -77,6 +79,7 @@ def segment(ct_bytes: bytes, filename: str, run_id: str) -> dict:
         "scheme": r.headers.get("X-Label-Scheme") or config.INFERENCE_SCHEME,
         "body": _hjson(r, "X-Body-Composition"),
         "run_id": r.headers.get("X-Run-Id", run_id),
+        "settings": _hjson(r, "X-Seg-Settings"),   # None from an older server; {} for MODEL=demo
     }
 
 

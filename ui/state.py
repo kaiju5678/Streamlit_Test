@@ -39,7 +39,7 @@ DEFAULTS = dict(
     meas=[], pending=None, meas_id=1, l3=None,
     status={"text": "", "error": False}, report=None, run=None, body=None, seg_secs=None,
     weblog=[], job=None, action=None, editing=False,
-    mesh={}, hide_server=False, up_nonce=0, mask_conflict=None, need_mask=False, last_click={}, tab_default=None, tab_nonce=0,
+    mesh={}, hide_server=False, up_nonce=0, mask_conflict=None, need_mask=False, seg_tta=True, seg_amp=True, last_click={}, tab_default=None, tab_nonce=0,
     p_sex="", p_h=None, p_w=None, dark=False,
 )
 
@@ -456,10 +456,11 @@ def cb_segment() -> None:
     run_id = uuid.uuid4().hex[:12]
     box: dict = {}
     data, name = v["bytes"], v["name"]
+    tta, amp = bool(ss.seg_tta), bool(ss.seg_amp)
 
     def work():
         try:
-            box["res"] = seg_client.segment(data, name if name.endswith(".gz") else name + ".gz", run_id)
+            box["res"] = seg_client.segment(data, name, run_id, tta, amp)   # .nii or .nii.gz: the server checks the bytes
         except Exception as e:  # noqa: BLE001
             box["err"] = str(e)
 
@@ -467,7 +468,14 @@ def cb_segment() -> None:
     t.start()
     ss.job = {"thread": t, "box": box, "run_id": run_id, "t0": time.time(), "vol_id": v["id"]}
     status(f"Sending {name} to the segmentation server…")
-    log("INFO", "INFERENCE", f"uploading {name} ({len(data) / 1e6:.1f} MB), run {run_id}")
+    log("INFO", "INFERENCE", f"uploading {name} ({len(data) / 1e6:.1f} MB), run {run_id}, {seg_mode({'tta': tta, 'amp': amp})}")
+
+
+def seg_mode(s: dict | None) -> str:
+    """'TTA on · AMP FP16' for the settings a mask was made with; '' when unknown (file, older server, demo model)."""
+    if not s:
+        return ""
+    return f"TTA {'on' if s.get('tta') else 'off'} · {'AMP FP16' if s.get('amp') else 'FP32'}"
 
 
 def finish_job() -> None:
@@ -487,6 +495,7 @@ def finish_job() -> None:
         ss.body = res.get("body")
         stem = NII.sub("", ss.vol["name"])
         k = load_mask_bytes(res["mask_bytes"], f"{stem}_seg.nii.gz", "inference", res["scheme"], res.get("labels"))
+        ss.mask["settings"] = res.get("settings")   # kept with this mask: the report and PDF say how it was made
         ss.report = None
         status(f"Segmentation complete. L3 set automatically at slice {k + 1}; please confirm it." if k is not None
                else "Segmentation complete. Check the mask before setting L3.")

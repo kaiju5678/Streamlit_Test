@@ -366,7 +366,8 @@ def report(a: dict) -> None:
 
     run = a["run"]
     seg = ("server model" if mask and mask["source"] == "inference" else mask["source"]) if mask else "none"
-    seg_sub = f"run {run['id']} · {run['wall_s']}s · {run['model']}" if run else (mask["name"] if mask else "")
+    mode = S.seg_mode((mask or {}).get("settings"))
+    seg_sub = (f"run {run['id']} · {run['wall_s']}s · {run['model']}" if run else (mask["name"] if mask else "")) + (f" · {mode}" if mode else "")
     narr = (rep["model"] if rep["source"] == "llm" else "Rule-based") if rep else "–"
     narr_sub = (f"temperature {rep['temperature']} · {rep['latencyMs'] / 1000:.1f} s{' · after retry' if rep.get('attempts', 1) > 1 else ''}"
                 if rep and rep["source"] == "llm" else "model failed · fallback" if rep and rep.get("fallbackReason")
@@ -528,9 +529,10 @@ def report_pdf(a: dict):
     rep, pl, v = a["report"], a["payload"], a["vol"]
     n, ref, rng = rep["narrative"], ss.ref, a["bio_range"] or {}
     prov = (f"{rep['model']} (temperature {rep['temperature']})" if rep["source"] == "llm" else "rule-based draft")
+    mode = S.seg_mode((a["mask"] or {}).get("settings"))
     meta = (f"Case {ref} · {v['shape'][2]} axial slices · biomarkers over {rng.get('source', '–')} · "
-            f"L3 slice {a['l3'] + 1 if a['l3'] is not None else '–'} · narrative: {prov} · "
-            f"generated {rep['generatedAt'][:19].replace('T', ' ')}{' · synthetic sample' if v['sample'] else ''}")
+            f"L3 slice {a['l3'] + 1 if a['l3'] is not None else '–'} · {f'segmentation: {mode} · ' if mode else ''}"
+            f"narrative: {prov} · generated {rep['generatedAt'][:19].replace('T', ' ')}{' · synthetic sample' if v['sample'] else ''}")
     texts = ([("Body composition summary", n["summary"])]
              + [(f"{i}. {t}", n[k] or "Not stated.") for i, (k, t) in enumerate(SECTIONS, 1)])
     bio = [(biomarkers.FIELDS[k], k, "–" if x is None else f"{x:,}") for k, x in pl.items()]

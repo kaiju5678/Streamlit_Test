@@ -145,6 +145,21 @@ def render() -> None:
             note = f"Model: {model}" + (" + TotalSegmentator" if health.get("totalsegmentator") else "")
         st.markdown(f"<p class='note{' warn' if ready is False and seg_client.configured() else ' model'}'>{note}</p>",
                     unsafe_allow_html=True)
+        # Per-run model settings; the defaults (TTA + AMP) are what the reports are validated with. The mask keeps the
+        # settings it was made with, so a change applies to the next run only.
+        default = ss.seg_tta and ss.seg_amp
+        with st.expander("Advanced" + ("" if default else " · changed"), expanded=not default, key="seg_adv"):
+            st.toggle("Mirroring TTA", key="seg_tta", disabled=busy,
+                      help="Test-time augmentation: the CT is also segmented mirrored and the results are averaged. "
+                           "Off made a whole run about 1.7x faster here (nnU-Net about 2x; finding L3 takes as "
+                           "long), but intermuscular fat (IMAT, one of the eight report values) came out about 22 % "
+                           "higher in the benchmark (server_segment/benchmark.py).")
+            st.toggle("Mixed precision (AMP, FP16)", key="seg_amp", disabled=busy,
+                      help="FP16 on the GPU. Same masks as FP32 in the benchmark (Dice ≥ 0.998) and about 25 % faster. "
+                           "Off = FP32: slower, less GPU memory.")
+            st.markdown("<p class='note'>" + ("Default: TTA on, AMP FP16." if default else
+                        "Not the default (TTA on, AMP FP16). The report shows the settings used.")
+                        + " Applies to the next run.</p>", unsafe_allow_html=True)
 
         # ---- 3 · Viewer controls
         sec("Viewer")

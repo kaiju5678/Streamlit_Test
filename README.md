@@ -65,10 +65,13 @@ Install (once): `pip install -r requirements.txt -r server_segment/requirements.
 | `MODEL` | `mazurowski` | `demo` = HU thresholds, no GPU (pipeline test only) |
 | `SEG_REPO` | `../../CT-Muscle-and-Fat-Segmentation` | the cloned repo with the model folder |
 | `SEG_CHECKPOINT` | `final` | `final` or `best` |
-| `SEG_TTA` | `1` | mirroring test-time augmentation; `0` is ~4× faster on the network but IMAT less stable (`benchmark.py`) |
+| `SEG_TTA` | `1` | default for mirroring test-time augmentation; `0` makes a whole run ~1.7× faster (nnU-Net ~2×; TotalSegmentator is unaffected) but IMAT less stable (`benchmark.py`) |
+| `SEG_AMP` | `1` | default for FP16 mixed precision; `0` = FP32 (same masks, slower) |
 | `WARMUP` | `1` | one tiny forward pass at start-up so the first CT does not pay for cuDNN set-up |
 | `AUTO_VERTEBRAE` / `TOTALSEG_FAST` | `1` / `0` | find T12/L3/L4; `--fast` 3 mm models |
 | `API_KEY`, `HOST`, `PORT` | off, `127.0.0.1`, `8000` | set `INFERENCE_API_KEY` in the app's `.env` to match |
+
+`SEG_TTA` and `SEG_AMP` are only defaults: the sidebar's **Advanced** section sets TTA and AMP for each run (`X-Seg-TTA` / `X-Seg-AMP`), and the settings used are kept with the mask and shown in the report and its PDF.
 
 `POST /segment` returns the mask (`.nii.gz`, labels 1 muscle · 2 SAT · 3 VAT · 4 IMAT · 50 L3 vertebra) with headers
 `X-Labels`, `X-Run-Id` and `X-Body-Composition` (vertebra slices plus the repo's 2D/3D metrics). Also

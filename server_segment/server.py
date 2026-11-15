@@ -4,8 +4,9 @@ Models are loaded once at start-up (engine.py) and every CT is handled in memory
 jobs in arrival order. The L3 vertebra is written into the mask as label 50 so the viewer sets the L3 slice itself,
 and the 2D (L3) / 3D (T12–L4) metrics come from core/bodycomp.py, the same code the frontend uses.
 
-POST /segment      body: .nii / .nii.gz bytes; headers X-Filename, X-Run-Id (optional, 12 hex)
-                   -> .nii.gz label mask on the CT grid; headers X-Labels, X-Label-Scheme, X-Run-Id, X-Body-Composition
+POST /segment      body: .nii / .nii.gz bytes; headers X-Filename, X-Run-Id (optional, 12 hex), X-Seg-TTA, X-Seg-AMP (0/1)
+                   -> .nii.gz label mask on the CT grid; headers X-Labels, X-Label-Scheme, X-Run-Id, X-Body-Composition,
+                      X-Seg-Settings (the TTA / AMP actually used)
 POST /convert      body: .zip of one DICOM study -> uncompressed .nii of one series; headers X-Series, X-Series-Chosen
 GET  /runs/{id}    log lines, stage timings and resource samples of one run (kept in memory, last 50)
 GET  /device       device, queue and GPU status
@@ -13,7 +14,9 @@ GET  /health       liveness; "ready" turns true once the models are loaded
 
     python server.py                       127.0.0.1:8000, Mazurowski model with TTA
     set MODEL=demo & python server.py      HU thresholds, no GPU (pipeline test)
-    set SEG_TTA=0 & python server.py       no mirroring TTA: ~4x faster, IMAT less stable (see benchmark.py)
+    set SEG_TTA=0 & python server.py       default without mirroring TTA: run ~1.7x faster, IMAT less stable (benchmark.py)
+                                           (SEG_TTA / SEG_AMP are defaults: the app's Advanced settings send
+                                           X-Seg-TTA / X-Seg-AMP per run)
 
 Run it with the Python environment that has nnunetv2 and TotalSegmentator (the models are imported, not launched).
 """
@@ -52,7 +55,8 @@ MODEL = os.getenv("MODEL", "mazurowski").strip().lower()          # mazurowski |
 SEG_REPO = Path(os.getenv("SEG_REPO", HERE.parent.parent / "CT-Muscle-and-Fat-Segmentation")).resolve()
 MODEL_DIR = SEG_REPO / "nnUNetTrainer__nnUNetResEncUNetXLPlans__2d"
 CHECKPOINT = os.getenv("SEG_CHECKPOINT", "final")                  # final | best
-TTA = env_flag("SEG_TTA", "1")
+TTA = env_flag("SEG_TTA", "1")                                   # defaults; the app can set both per run
+AMP = env_flag("SEG_AMP", "1")
 WARMUP = env_flag("WARMUP", "1")
 AUTO_VERTEBRAE = env_flag("AUTO_VERTEBRAE", "1")
 TOTALSEG_FAST = env_flag("TOTALSEG_FAST", "0")
@@ -94,8 +98,20 @@ def load_engine() -> None:
         print(f"model load failed: {S.load_error}", flush=True)
 
 
+def quiet_connection_resets(loop: asyncio.AbstractEventLoop) -> None:
+    """On Windows, a client that drops its connection (a closed tab, a killed Streamlit) makes asyncio's proactor print
+    a ConnectionResetError traceback while it tidies up the socket. Nothing has failed, so skip that one case; every
+    other loop error still goes to the default handler."""
+    def handler(loop, context):
+        if isinstance(context.get("exception"), ConnectionResetError):
+            return
+        loop.default_exception_handler(context)
+    loop.set_exception_handler(handler)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    quiet_connection_resets(asyncio.get_running_loop())
     S.gpu.submit(load_engine)   # first job of the GPU worker: requests that arrive meanwhile queue behind it
     yield
     S.gpu.shutdown(wait=False, cancel_futures=True)
@@ -141,7 +157,7 @@ def header_json(value) -> str:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "model": MODEL, "ready": S.engine is not None, "error": S.load_error, "tta": TTA,
+    return {"ok": True, "model": MODEL, "ready": S.engine is not None, "error": S.load_error, "tta": TTA, "amp": AMP,
             "repo_found": MODEL_DIR.exists() or MODEL == "demo",
             "totalsegmentator": importlib.util.find_spec("totalsegmentator") is not None, "auto_vertebrae": AUTO_VERTEBRAE}
 
@@ -161,22 +177,25 @@ def get_run(run_id: str, x_api_key: str = Header("")):
     return S.runs[run_id].as_dict()
 
 
-def gpu_job(raw: bytes, run: RunRecord):
+def gpu_job(raw: bytes, run: RunRecord, tta: bool, amp: bool):
     S.active = 1
     try:
         if S.engine is None:
             raise RuntimeError(f"models are not loaded: {S.load_error or 'still loading'}")
         run.status = "running"
-        run.log("INFO", "PIPELINE", f"run {run.id} on {S.telemetry.device}, model '{MODEL}', TTA {'on' if TTA else 'off'}")
-        return S.engine.segment(raw, run)
+        run.log("INFO", "PIPELINE", f"run {run.id} on {S.telemetry.device}, model '{MODEL}', "
+                + (f"TTA {'on' if tta else 'off'}, {'AMP FP16' if amp else 'FP32'}" if MODEL == "mazurowski" else "HU thresholds"))
+        return S.engine.segment(raw, run, tta, amp)
     finally:
         S.active = 0
 
 
 @app.post("/segment")
 async def segment(request: Request, x_filename: str = Header("ct.nii.gz"), x_run_id: str = Header(""),
-                  x_api_key: str = Header("")):
+                  x_seg_tta: str = Header(""), x_seg_amp: str = Header(""), x_api_key: str = Header("")):
     require_key(x_api_key)
+    tta = TTA if x_seg_tta not in ("0", "1") else x_seg_tta == "1"
+    amp = AMP if x_seg_amp not in ("0", "1") else x_seg_amp == "1"
     run = S.runs.add(RunRecord(S.telemetry, MODEL, Path(unquote(x_filename)).name,
                                x_run_id if re.fullmatch(r"[0-9a-f]{12}", x_run_id or "") else None))
     try:
@@ -188,7 +207,7 @@ async def segment(request: Request, x_filename: str = Header("ct.nii.gz"), x_run
             run.log("INFO", "QUEUE", f"waiting for the GPU ({S.pending} job(s) ahead)")
         S.pending += 1
         try:
-            result = await asyncio.wrap_future(S.gpu.submit(gpu_job, raw, run))
+            result = await asyncio.wrap_future(S.gpu.submit(gpu_job, raw, run, tta, amp))
         finally:
             S.pending -= 1
     except HTTPException as e:
@@ -204,7 +223,8 @@ async def segment(request: Request, x_filename: str = Header("ct.nii.gz"), x_run
     return Response(result.mask_gz, media_type="application/octet-stream", headers={
         "X-Label-Scheme": "generic", "X-Run-Id": run.id,
         "X-Labels": header_json({str(k): v for k, v in result.labels.items()}),
-        "X-Body-Composition": header_json(result.body)})
+        "X-Body-Composition": header_json(result.body),
+        "X-Seg-Settings": header_json({"tta": tta, "amp": amp} if MODEL == "mazurowski" else {})})
 
 
 @app.post("/convert")
@@ -231,7 +251,7 @@ if __name__ == "__main__":
     if os.name == "nt":
         os.system("")   # ANSI colours in cmd.exe for the access log
     print(f"BodyComp segmentation server  http://{HOST}:{PORT}")
-    print(f"  model      : {MODEL}" + (f"  ({MODEL_DIR.name}, checkpoint {CHECKPOINT}, TTA {'on' if TTA else 'off'})"
+    print(f"  model      : {MODEL}" + (f"  ({MODEL_DIR.name}, checkpoint {CHECKPOINT}, TTA {'on' if TTA else 'off'}, {'AMP' if AMP else 'FP32'} by default)"
                                        if MODEL == "mazurowski" else ""))
     print(f"  vertebrae  : {'TotalSegmentator' + (' --fast' if TOTALSEG_FAST else '') if AUTO_VERTEBRAE else 'off'}")
     print(f"  device     : {S.telemetry.device} ({S.telemetry.kind})")
