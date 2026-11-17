@@ -126,7 +126,11 @@ def area_chart(t: list, v: list, unit: str, color: str, vmax: float | None = Non
         fig.add_trace(go.Scatter(x=[t[i]], y=[v[i]], mode="markers", marker=dict(color=color, size=7), hoverinfo="skip"))
     fig.update_layout(showlegend=False, xaxis=dict(title="s", gridcolor=grid, zeroline=False),
                       yaxis=dict(gridcolor=grid, zeroline=False, range=[0, vmax] if vmax else None))
-    return _base(fig, 180, dark)
+    fig.update_xaxes(automargin=True, title_standoff=4)
+    fig.update_yaxes(automargin=True)
+    # Margins after _base (it sets 8 px all round): with 8 px the y tick labels were cut to their last digit
+    # ("4000" showed as "0"), so leave room for 4-digit labels and the x ticks + title
+    return _base(fig, 200, dark).update_layout(margin=dict(l=48, r=12, t=8, b=40))
 
 
 
